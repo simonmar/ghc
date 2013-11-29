@@ -7,7 +7,7 @@
 -----------------------------------------------------------------------------
 
 module StgCmmArgRep (
-        ArgRep(..), toArgRep, argRepSizeW,
+        ArgRep(..), toArgRep, argRepSizeW, argRepSizeB,
 
         argRepString, isNonV, idArgRep,
 
@@ -92,6 +92,20 @@ argRepSizeW _      V   = 0
 argRepSizeW dflags V16 = 16                 `quot` wORD_SIZE dflags
 argRepSizeW dflags V32 = 32                 `quot` wORD_SIZE dflags
 argRepSizeW dflags V64 = 64                 `quot` wORD_SIZE dflags
+
+argRepSizeB :: DynFlags -> ArgRep -> WordOff                -- Size in bytes
+argRepSizeB dflags rep =
+  case rep of
+    N   -> word_size
+    P   -> word_size
+    F   -> 4             -- NB. might be smaller than a word!
+    L   -> wORD64_SIZE
+    D   -> dOUBLE_SIZE dflags
+    V   -> 0
+    V16 -> 16
+    V32 -> 32
+    V64 -> 64
+  where word_size = wORD_SIZE dflags
 
 idArgRep :: Id -> ArgRep
 idArgRep = toArgRep . idPrimRep

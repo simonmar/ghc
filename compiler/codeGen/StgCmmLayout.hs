@@ -17,6 +17,7 @@ module StgCmmLayout (
 
         slowCall, directCall,
 
+        mkVirtHeapOffsetsWithPadding,
         mkVirtHeapOffsets, mkVirtConstrOffsets, getHpRelOffset, 
 
         ArgRep(..), toArgRep, argRepSizeW -- re-exported from StgCmmArgRep
@@ -51,6 +52,7 @@ import Data.List
 import Outputable
 import FastString
 import Control.Monad
+import Data.Bits
 
 ------------------------------------------------------------------------
 --                Call and return sequences
@@ -381,13 +383,16 @@ getHpRelOffset virtual_offset
        hp_usg <- getHpUsage
        return (cmmRegOffW dflags hpReg (hpRel (realHp hp_usg) virtual_offset))
 
-mkVirtHeapOffsets
+mkVirtHeapOffsetsWithPadding
   :: DynFlags
-  -> Bool                -- True <=> is a thunk
+  -> Bool                 -- True <=> is a thunk
   -> [(PrimRep,a)]        -- Things to make offsets for
   -> (WordOff,                -- _Total_ number of words allocated
       WordOff,                -- Number of words allocated for *pointers*
-      [(NonVoid a, ByteOff)])
+      [( Either               -- Either:
+            ByteOff           --   Some padding bytes
+            (NonVoid a)       --   A real field
+       , ByteOff)])           -- the offset of this thing
 
 -- Things with their offsets from start of object in order of
 -- increasing offset; BUT THIS MAY BE DIFFERENT TO INPUT ORDER
@@ -399,10 +404,10 @@ mkVirtHeapOffsets
 -- mkVirtHeapOffsets always returns boxed things with smaller offsets
 -- than the unboxed things
 
-mkVirtHeapOffsets dflags is_thunk things
+mkVirtHeapOffsetsWithPadding dflags is_thunk things
   = ( bytesToWordsRoundUp dflags tot_bytes
     , bytesToWordsRoundUp dflags bytes_of_ptrs
-    , ptrs_w_offsets ++ non_ptrs_w_offsets
+    , concat (ptrs_w_offsets ++ non_ptrs_w_offsets)
     )
   where
     hdr_words | is_thunk   = thunkHdrSize dflags
@@ -417,16 +422,47 @@ mkVirtHeapOffsets dflags is_thunk things
     (tot_bytes, non_ptrs_w_offsets) =
        mapAccumL computeOffset bytes_of_ptrs non_ptrs
 
+    word_size = wORD_SIZE dflags
+
     computeOffset bytes_so_far (rep, thing)
-      = (bytes_so_far + wordsToBytes dflags (argRepSizeW dflags (toArgRep rep)),
-         (NonVoid thing, hdr_bytes + bytes_so_far))
+      = ( start + size                  -- next offset
+        , mk_padding (Right (NonVoid thing), hdr_bytes + start) )
+      where
+        -- size in bytes of this field
+        size  = argRepSizeB dflags (toArgRep rep)
+
+        -- alignment: never align to more than a word
+        align = min word_size size
+
+        -- align the start offset
+        start = (bytes_so_far + (align - 1)) .&. (complement (align - 1))
+
+        padding = start - bytes_so_far
+
+        mk_padding right | padding > 0 = [(Left padding, bytes_so_far), right]
+                         | otherwise   = [right]
+
+mkVirtHeapOffsets
+  :: DynFlags
+  -> Bool                 -- True <=> is a thunk
+  -> [(PrimRep,a)]        -- Things to make offsets for
+  -> (WordOff,                -- _Total_ number of words allocated
+      WordOff,                -- Number of words allocated for *pointers*
+      [( NonVoid a
+       , ByteOff)])
+mkVirtHeapOffsets dflags is_thunk things
+  = (tot_wds, ptr_wds,
+      [ (field,offset) | (Right field, offset) <- things_offsets ])
+ where
+   (tot_wds, ptr_wds, things_offsets)
+      = mkVirtHeapOffsetsWithPadding dflags is_thunk things
 
 -- | Just like mkVirtHeapOffsets, but for constructors
 mkVirtConstrOffsets
-  :: DynFlags -> [(PrimRep,a)]
+  :: DynFlags
+  -> [(PrimRep,a)]
   -> (WordOff, WordOff, [(NonVoid a, ByteOff)])
 mkVirtConstrOffsets dflags = mkVirtHeapOffsets dflags False
-
 
 -------------------------------------------------------------------------
 --
