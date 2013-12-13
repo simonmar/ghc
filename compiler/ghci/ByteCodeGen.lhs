@@ -47,7 +47,9 @@ import ErrUtils
 import Unique
 import FastString
 import Panic
-import StgCmmLayout     ( ArgRep(..), toArgRep, argRepSizeW )
+import StgCmmEnv        ( NonVoid(..) )
+import StgCmmLayout     ( ArgRep(..), toArgRep, argRepSizeW
+                        , mkVirtConstrOffsets, mkVirtHeapOffsetsWithPadding )
 import SMRep
 import Bitmap
 import OrdList
@@ -659,21 +661,26 @@ mkConAppCode _ _ _ con []       -- Nullary constructor
 
 mkConAppCode orig_d _ p con args_r_to_l
   = ASSERT( dataConRepArity con == length args_r_to_l )
-    do_pushery orig_d (non_ptr_args ++ ptr_args)
- where
-        -- The args are already in reverse order, which is the way PACK
-        -- expects them to be.  We must push the non-ptrs after the ptrs.
-      (ptr_args, non_ptr_args) = partition isPtrAtom args_r_to_l
 
-      do_pushery d (arg:args)
-         = do (push, arg_words) <- pushAtom d p arg
-              more_push_code <- do_pushery (d + fromIntegral arg_words) args
-              return (push `appOL` more_push_code)
-      do_pushery d []
-         = return (unitOL (PACK con n_arg_words))
-         where
-           n_arg_words = trunc16 $ d - orig_d
+    do
+       dflags <- getDynFlags
+       let
+            -- The args are initially in reverse order
+          (_tot_wds, _tot_ptrs, args_offsets) =
+            mkVirtHeapOffsetsWithPadding dflags False
+              [ (atomPrimRep a, a) | a <- reverse args_r_to_l ]
+    
+          do_pushery _ ((Left _,_) : _) =
+            error "ByteCodeGen.mkConAppCode: padding"
+          do_pushery d ((Right (NonVoid arg),_) : args) = do
+            (push, arg_words) <- pushAtom d p arg
+            more_push_code <- do_pushery (d + fromIntegral arg_words) args
+            return (push `appOL` more_push_code)
 
+          do_pushery d [] = return (unitOL (PACK con n_arg_words))
+            where n_arg_words = trunc16 $ d - orig_d
+       --
+       do_pushery orig_d (reverse args_offsets)
 
 -- -----------------------------------------------------------------------------
 -- Returning an unboxed tuple with one non-void component (the only
@@ -806,15 +813,17 @@ doCase d s p (_,scrut) bndr alts is_unboxed_tuple
            -- algebraic alt with some binders
            | otherwise =
              let
-                 (ptrs,nptrs) = partition (isFollowableArg.bcIdArgRep) real_bndrs
-                 ptr_sizes    = map (fromIntegral . idSizeW dflags) ptrs
-                 nptrs_sizes  = map (fromIntegral . idSizeW dflags) nptrs
-                 bind_sizes   = ptr_sizes ++ nptrs_sizes
-                 size         = sum ptr_sizes + sum nptrs_sizes
-                 -- the UNPACK instruction unpacks in reverse order...
+                 (tot_wds, _ptrs_wds, args_offsets)
+                   = mkVirtConstrOffsets dflags
+                       [ (bcIdPrimRep id, id) | id <- real_bndrs ]
+                 size = fromIntegral tot_wds
+
+                 ws = wORD_SIZE dflags
+
+                 -- convert offsets from Sp into offsets into the virtual stack
                  p' = Map.insertList
-                        (zip (reverse (ptrs ++ nptrs))
-                          (mkStackOffsets d_alts (reverse bind_sizes)))
+                        [ (arg, d_alts + size - fromIntegral (offset `quot` ws))
+                        | (NonVoid arg, offset) <- args_offsets ]
                         p_alts
              in do
              MASSERT(isAlgCase)
@@ -1575,9 +1584,6 @@ atomPrimRep other = pprPanic "atomPrimRep" (ppr (deAnnotate (undefined,other)))
 
 atomRep :: AnnExpr' Id ann -> ArgRep
 atomRep e = toArgRep (atomPrimRep e)
-
-isPtrAtom :: AnnExpr' Id ann -> Bool
-isPtrAtom e = isFollowableArg (atomRep e)
 
 -- Let szsw be the sizes in words of some items pushed onto the stack,
 -- which has initial depth d'.  Return the values which the stack environment
