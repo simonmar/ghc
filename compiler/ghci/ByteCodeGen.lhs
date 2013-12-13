@@ -204,10 +204,12 @@ mkProtoBCO dflags nm instrs_ordlist origin arity bitmap_size bitmap is_ret mallo
         -- Merge local pushes
         peep_d = peep (fromOL instrs_ordlist)
 
+        ws = fromIntegral (wORD_SIZE dflags)
+
         peep (PUSH_L off1 : PUSH_L off2 : PUSH_L off3 : rest)
-           = PUSH_LLL off1 (off2-1) (off3-2) : peep rest
+           = PUSH_LLL off1 (off2-ws) (off3-2*ws) : peep rest
         peep (PUSH_L off1 : PUSH_L off2 : rest)
-           = PUSH_LL off1 (off2-1) : peep rest
+           = PUSH_LL off1 (off2-ws) : peep rest
         peep (i:rest)
            = i : peep rest
         peep []
@@ -1281,7 +1283,8 @@ pushAtom d p (AnnVar v)
         let sz :: Word16
             sz = fromIntegral (idSizeW dflags v)
             l = trunc16 $ d - d_v + fromIntegral sz - 2
-        return (toOL (genericReplicate sz (PUSH_L l)), sz)
+            ws = fromIntegral (wORD_SIZE dflags)
+        return (toOL (genericReplicate sz (PUSH_L (l * ws))), sz)
          -- d - d_v                 the number of words between the TOS
          --                         and the 1st slot of the object
          --
