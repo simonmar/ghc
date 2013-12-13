@@ -402,7 +402,7 @@ schemeE d s p (AnnLet (AnnNonRec x (_,rhs)) (_,body))
         -- saturatred constructor application.
         -- Just allocate the constructor and carry on
         alloc_code <- mkConAppCode d s p data_con args_r_to_l
-        body_code <- schemeE (d+1) s (Map.insert x d p) body
+        body_code <- schemeE (d+1) s (Map.insert x (d+1) p) body
         return (alloc_code `appOL` body_code)
 
 -- General case for let.  Generates correct, if inefficient, code in
@@ -791,7 +791,7 @@ doCase d s p (_,scrut) bndr alts is_unboxed_tuple
 
         -- Env in which to compile the alts, not including
         -- any vars bound by the alts themselves
-        d_bndr' = fromIntegral d_bndr - 1
+        d_bndr' = fromIntegral d_bndr
         p_alts0 = Map.insert bndr d_bndr' p
         p_alts = case is_unboxed_tuple of
                    Just ubx_bndr -> Map.insert ubx_bndr d_bndr' p_alts0
@@ -824,7 +824,7 @@ doCase d s p (_,scrut) bndr alts is_unboxed_tuple
 
                  -- convert offsets from Sp into offsets into the virtual stack
                  p' = Map.insertList
-                        [ (arg, d_alts + size - fromIntegral (offset `quot` ws))
+                        [ (arg, d_alts + 1 + size - fromIntegral (offset `quot` ws))
                         | (NonVoid arg, offset) <- args_offsets ]
                         p_alts
              in do
@@ -881,7 +881,7 @@ doCase d s p (_,scrut) bndr alts is_unboxed_tuple
           rel_slots = nub $ map fromIntegral $ concat (map spread binds)
           spread (id, offset) | isFollowableArg (bcIdArgRep id) = [ rel_offset ]
                               | otherwise                      = []
-                where rel_offset = trunc16 $ d - fromIntegral offset - 1
+                where rel_offset = trunc16 $ d - fromIntegral offset
 
      alt_stuff <- mapM codeAlt alts
      alt_final <- mkMultiBranch maybe_ncons alt_stuff
@@ -1282,15 +1282,13 @@ pushAtom d p (AnnVar v)
    = do dflags <- getDynFlags
         let sz :: Word16
             sz = fromIntegral (idSizeW dflags v)
-            l = trunc16 $ d - d_v + fromIntegral sz - 2
+            l = trunc16 $ d - d_v + fromIntegral sz - 1
             ws = fromIntegral (wORD_SIZE dflags)
         return (toOL (genericReplicate sz (PUSH_L (l * ws))), sz)
          -- d - d_v                 the number of words between the TOS
          --                         and the 1st slot of the object
          --
-         -- d - d_v - 1             the offset from the TOS of the 1st slot
-         --
-         -- d - d_v - 1 + sz - 1    the offset from the TOS of the last slot
+         -- d - d_v + sz - 1        the offset from the TOS of the last slot
          --                         of the object.
          --
          -- Having found the last slot, we proceed to copy the right number of
@@ -1593,7 +1591,7 @@ atomRep e = toArgRep (atomPrimRep e)
 -- should map these items to.
 mkStackOffsets :: Word -> [Word] -> [Word]
 mkStackOffsets original_depth szsw
-   = map (subtract 1) (tail (scanl (+) original_depth szsw))
+   = tail (scanl (+) original_depth szsw)
 
 typeArgRep :: Type -> ArgRep
 typeArgRep = toArgRep . typePrimRep
