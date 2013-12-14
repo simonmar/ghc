@@ -954,7 +954,7 @@ run_BCO:
 
 	case bci_PUSH_L: {
 	    int o1 = BCO_NEXT;
-            Sp(-1) = SpB(o1);
+            Sp(-1) = Sp(o1);
 	    Sp_subW(1);
 	    goto nextInsn;
 	}
@@ -962,8 +962,8 @@ run_BCO:
 	case bci_PUSH_LL: {
 	    int o1 = BCO_NEXT;
 	    int o2 = BCO_NEXT;
-            Sp(-1) = SpB(o1);
-            Sp(-2) = SpB(o2);
+            Sp(-1) = Sp(o1);
+            Sp(-2) = Sp(o2);
             Sp_subW(2);
 	    goto nextInsn;
 	}
@@ -972,9 +972,9 @@ run_BCO:
 	    int o1 = BCO_NEXT;
 	    int o2 = BCO_NEXT;
 	    int o3 = BCO_NEXT;
-            Sp(-1) = SpB(o1);
-            Sp(-2) = SpB(o2);
-            Sp(-3) = SpB(o3);
+            Sp(-1) = Sp(o1);
+            Sp(-2) = Sp(o2);
+            Sp(-3) = Sp(o3);
             Sp_subW(3);
 	    goto nextInsn;
 	}
