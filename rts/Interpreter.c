@@ -979,7 +979,28 @@ run_BCO:
 	    goto nextInsn;
 	}
 
-	case bci_PUSH_G: {
+        case bci_PUSH8: {
+            int off = BCO_NEXT;
+            Sp_subB(1);
+            *(StgWord8*)Sp = *(StgWord8*)(Sp_plusB(off+1));
+            goto nextInsn;
+        }
+
+        case bci_PUSH16: {
+            int off = BCO_NEXT;
+            Sp_subB(2);
+            *(StgWord16*)Sp = *(StgWord16*)(Sp_plusB(off+2));
+            goto nextInsn;
+        }
+
+        case bci_PUSH32: {
+            int off = BCO_NEXT;
+            Sp_subB(4);
+            *(StgWord32*)Sp = *(StgWord32*)(Sp_plusB(off+4));
+            goto nextInsn;
+        }
+
+        case bci_PUSH_G: {
 	    int o1 = BCO_GET_LARGE_ARG;
 	    Sp(-1) = BCO_PTR(o1);
             Sp_subW(1);
@@ -1076,7 +1097,28 @@ run_BCO:
 	    Sp_subW(1); Sp(0) = (W_)&stg_ap_pppppp_info;
 	    goto nextInsn;
 	    
-	case bci_PUSH_UBX: {
+        case bci_PUSH_UBX8: {
+            int o_lit = BCO_GET_LARGE_ARG;
+            Sp_subB(1);
+            *(StgWord8*)Sp = *(StgWord8*)(literals+o_lit);
+            goto nextInsn;
+        }
+
+        case bci_PUSH_UBX16: {
+            int o_lit = BCO_GET_LARGE_ARG;
+            Sp_subB(2);
+            *(StgWord16*)Sp = *(StgWord16*)(literals+o_lit);
+            goto nextInsn;
+        }
+
+        case bci_PUSH_UBX32: {
+            int o_lit = BCO_GET_LARGE_ARG;
+            Sp_subB(4);
+            *(StgWord32*)Sp = *(StgWord32*)(literals+o_lit);
+            goto nextInsn;
+        }
+
+        case bci_PUSH_UBX: {
 	    int i;
 	    int o_lits = BCO_GET_LARGE_ARG;
 	    int n_words = BCO_NEXT;
