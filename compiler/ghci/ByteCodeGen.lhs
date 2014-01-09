@@ -50,7 +50,7 @@ import FastString
 import Panic
 import StgCmmEnv        ( NonVoid(..) )
 import StgCmmLayout     ( mkVirtConstrOffsets, mkVirtHeapOffsetsWithPadding )
-import StgCmmArgRep     ( ArgRep(..), toArgRep, argRepSizeW{-, argRepSizeB-} )
+import StgCmmArgRep     ( ArgRep(..), toArgRep, argRepSizeW, argRepSizeB )
 import SMRep hiding (ByteOff, WordOff, wordsToBytes)
 import Bitmap
 import OrdList
@@ -151,8 +151,9 @@ wordsToBytes dflags = fromIntegral . (* wORD_SIZE dflags) . fromIntegral
 -- used when we know we have a whole number of words
 bytesToWords :: DynFlags -> ByteOff -> WordOff
 bytesToWords dflags bytes =
-  ASSERT(bytes `rem` ByteOff (wORD_SIZE dflags) == 0)
-  fromIntegral $ (`quot` wORD_SIZE dflags) $ fromIntegral bytes
+  if (bytes `rem` ByteOff (wORD_SIZE dflags) /= 0)
+     then panic "bytesToWords"
+     else fromIntegral $ (`quot` wORD_SIZE dflags) $ fromIntegral bytes
 
 wordSize :: DynFlags -> ByteOff
 wordSize dflags = ByteOff $ wORD_SIZE dflags
@@ -709,10 +710,12 @@ mkConAppCode orig_d _ p con args_r_to_l
             mkVirtHeapOffsetsWithPadding dflags False
               [ (atomPrimRep a, a) | a <- reverse args_r_to_l ]
     
-          do_pushery _ ((Left _,_) : _) =
-            error "ByteCodeGen.mkConAppCode: padding"
-          do_pushery d ((Right (NonVoid arg),_) : args) = do
-            (push, arg_bytes) <- pushAtom d p arg
+          do_pushery d (arg : args) = do
+            (push, arg_bytes) <- case arg of
+              (Right (NonVoid atom), _) -> pushConstrAtom d p atom
+              (Left pad_size, _) -> do
+                push <- pushPadding (ByteOff pad_size)
+                return (push, ByteOff pad_size)
             more_push_code <- do_pushery (d + arg_bytes) args
             return (push `appOL` more_push_code)
 
@@ -1328,10 +1331,19 @@ pushAtom d p (AnnVar v) = do
      -> return (unitOL (PUSH_PRIMOP primop), ws)
   
      | Just d_v <- lookupBCEnv_maybe v p  -- v is a local variable
-     -> let szw = idSizeW dflags v
-            l = trunc16w $ bytesToWords dflags (d - d_v) + szw - 1
-        in
-        return (toOL (genericReplicate szw (PUSH_L l)), wordsToBytes dflags szw)
+     -> do
+        let szb = idSizeB dflags v
+            szw = bytesToWords dflags (szb + wordSize dflags - 1)
+        let done instr = return (unitOL (instr (trunc16b $ d - d_v + szb)),
+                                 wordsToBytes dflags szw)
+        case szb of
+          1 -> done PUSH8_W
+          2 -> done PUSH16_W
+          4 -> done PUSH32_W
+          _ -> do
+            let l = trunc16w $ bytesToWords dflags (d - d_v) + szw - 1
+            return (toOL (genericReplicate szw (PUSH_L l)),
+                    wordsToBytes dflags szw)
            -- d - d_v                 the number of words between the TOS
            --                         and the 1st slot of the object
            --
@@ -1401,6 +1413,33 @@ pushAtom _ _ expr
 foreign import ccall unsafe "memcpy"
  memcpy :: Ptr a -> Ptr b -> CSize -> IO ()
 
+
+pushConstrAtom
+  :: StackDepth -> BCEnv -> AnnExpr' Id VarSet
+  -> BcM (BCInstrList, ByteOff)
+
+pushConstrAtom _ _ (AnnLit lit@(MachFloat _)) =
+  return ( unitOL (PUSH_UBX32 lit), 4)
+
+pushConstrAtom d p (AnnVar v)
+  | Just d_v <- lookupBCEnv_maybe v p = do  -- v is a local variable
+  dflags <- getDynFlags
+  let szb = idSizeB dflags v
+  let done instr = return (unitOL (instr (trunc16b $ d - d_v + szb)), szb)
+  case szb of
+    1 -> done PUSH8
+    2 -> done PUSH16
+    4 -> done PUSH32
+    _ -> pushAtom d p (AnnVar v)
+
+pushConstrAtom d p expr = pushAtom d p expr
+
+
+pushPadding :: ByteOff -> BcM BCInstrList
+pushPadding 1 = return $ unitOL (PUSH_UBX8 (mkDummyLiteral WordRep))
+pushPadding 2 = return $ unitOL (PUSH_UBX16 (mkDummyLiteral WordRep))
+pushPadding 4 = return $ unitOL (PUSH_UBX32 (mkDummyLiteral WordRep))
+pushPadding _ = error "pushPadding"
 
 -- -----------------------------------------------------------------------------
 -- Given a bunch of alts code and their discrs, do the donkey work
@@ -1546,8 +1585,8 @@ lookupBCEnv_maybe = Map.lookup
 idSizeW :: DynFlags -> Id -> WordOff
 idSizeW dflags = WordOff . argRepSizeW dflags . bcIdArgRep
 
--- idSizeB :: DynFlags -> Id -> ByteOff
--- idSizeB dflags = ByteOff . argRepSizeB dflags . bcIdArgRep
+idSizeB :: DynFlags -> Id -> ByteOff
+idSizeB dflags = ByteOff . argRepSizeB dflags . bcIdArgRep
 
 bcIdArgRep :: Id -> ArgRep
 bcIdArgRep = toArgRep . bcIdPrimRep

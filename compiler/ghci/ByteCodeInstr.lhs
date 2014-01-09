@@ -69,6 +69,14 @@ data BCInstr
    | PUSH_LL   !Word16 !Word16{-2 offsets-}
    | PUSH_LLL  !Word16 !Word16 !Word16{-3 offsets-}
 
+   | PUSH8     !Word16
+   | PUSH16    !Word16
+   | PUSH32    !Word16
+
+   | PUSH8_W   !Word16
+   | PUSH16_W  !Word16
+   | PUSH32_W  !Word16
+
    -- Push a ptr  (these all map to PUSH_G really)
    | PUSH_G       Name
    | PUSH_PRIMOP  PrimOp
@@ -79,6 +87,9 @@ data BCInstr
    | PUSH_ALTS_UNLIFTED (ProtoBCO Name) ArgRep
 
    -- Pushing literals
+   | PUSH_UBX8  Literal
+   | PUSH_UBX16 Literal
+   | PUSH_UBX32 Literal
    | PUSH_UBX  (Either Literal (Ptr ())) Word16
 	-- push this int/float/double/addr, on the stack. Word16
 	-- is # of words to copy from literal pool.  Eitherness reflects
@@ -212,13 +223,22 @@ instance Outputable BCInstr where
    ppr (PUSH_L offset)       = text "PUSH_L  " <+> ppr offset
    ppr (PUSH_LL o1 o2)       = text "PUSH_LL " <+> ppr o1 <+> ppr o2
    ppr (PUSH_LLL o1 o2 o3)   = text "PUSH_LLL" <+> ppr o1 <+> ppr o2 <+> ppr o3
-   ppr (PUSH_G nm)  	     = text "PUSH_G  " <+> ppr nm
+   ppr (PUSH8  offset)       = text "PUSH8  " <+> ppr offset
+   ppr (PUSH16 offset)       = text "PUSH16  " <+> ppr offset
+   ppr (PUSH32 offset)       = text "PUSH32  " <+> ppr offset
+   ppr (PUSH8_W  offset)     = text "PUSH8_W  " <+> ppr offset
+   ppr (PUSH16_W offset)     = text "PUSH16_W  " <+> ppr offset
+   ppr (PUSH32_W offset)     = text "PUSH32_W  " <+> ppr offset
+   ppr (PUSH_G nm)           = text "PUSH_G  " <+> ppr nm
    ppr (PUSH_PRIMOP op)      = text "PUSH_G  " <+> text "GHC.PrimopWrappers." 
                                                <> ppr op
    ppr (PUSH_BCO bco)        = hang (text "PUSH_BCO") 2 (ppr bco)
    ppr (PUSH_ALTS bco)       = hang (text "PUSH_ALTS") 2 (ppr bco)
    ppr (PUSH_ALTS_UNLIFTED bco pk) = hang (text "PUSH_ALTS_UNLIFTED" <+> ppr pk) 2 (ppr bco)
 
+   ppr (PUSH_UBX8  lit) = text "PUSH_UBX8" <+> ppr lit
+   ppr (PUSH_UBX16 lit) = text "PUSH_UBX16" <+> ppr lit
+   ppr (PUSH_UBX32 lit) = text "PUSH_UBX32" <+> ppr lit
    ppr (PUSH_UBX (Left lit) nw) = text "PUSH_UBX" <+> parens (ppr nw) <+> ppr lit
    ppr (PUSH_UBX (Right aa) nw) = text "PUSH_UBX" <+> parens (ppr nw) <+> text (show aa)
    ppr PUSH_APPLY_N		= text "PUSH_APPLY_N"
@@ -284,14 +304,23 @@ protoBCOStackUse bco = sum (map bciStackUse (protoBCOInstrs bco))
 
 bciStackUse :: BCInstr -> Word
 bciStackUse STKCHECK{}            = 0
-bciStackUse PUSH_L{}       	  = 1
-bciStackUse PUSH_LL{}       	  = 2
+bciStackUse PUSH_L{}              = 1
+bciStackUse PUSH_LL{}             = 2
 bciStackUse PUSH_LLL{}            = 3
-bciStackUse PUSH_G{} 		  = 1
+bciStackUse PUSH8{}               = 1
+bciStackUse PUSH16{}              = 1
+bciStackUse PUSH32{}              = 1
+bciStackUse PUSH8_W{}             = 1
+bciStackUse PUSH16_W{}            = 1
+bciStackUse PUSH32_W{}            = 1
+bciStackUse PUSH_G{}              = 1
 bciStackUse PUSH_PRIMOP{}         = 1
 bciStackUse PUSH_BCO{}    	  = 1
 bciStackUse (PUSH_ALTS bco)       = 2 + protoBCOStackUse bco
 bciStackUse (PUSH_ALTS_UNLIFTED bco _) = 2 + protoBCOStackUse bco
+bciStackUse (PUSH_UBX8 _)         = 1
+bciStackUse (PUSH_UBX16 _)        = 2
+bciStackUse (PUSH_UBX32 _)        = 4
 bciStackUse (PUSH_UBX _ nw)       = fromIntegral nw
 bciStackUse PUSH_APPLY_N{}	  = 1
 bciStackUse PUSH_APPLY_V{}	  = 1

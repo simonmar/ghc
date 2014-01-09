@@ -702,10 +702,6 @@ $(foreach way,$(compiler_stage3_WAYS),\
 # switch off the recompilation checker for that module:
 compiler/prelude/PrimOp_HC_OPTS  += -fforce-recomp
 
-ifeq "$(DYNAMIC_GHC_PROGRAMS)" "YES"
-compiler/utils/Util_HC_OPTS += -DDYNAMIC_GHC_PROGRAMS
-endif
-
 # LibFFI.hs #includes ffi.h
 ifneq "$(UseSystemLibFFI)" "YES"
 compiler/stage2/build/LibFFI.hs : $(libffi_HEADERS)

@@ -1000,6 +1000,27 @@ run_BCO:
             goto nextInsn;
         }
 
+        case bci_PUSH8_W: {
+            int off = BCO_NEXT;
+            *(StgWord8*)(Sp_minusW(1)) = *(StgWord8*)(Sp_plusB(off));
+            Sp_subW(1);
+            goto nextInsn;
+        }
+
+        case bci_PUSH16_W: {
+            int off = BCO_NEXT;
+            *(StgWord16*)(Sp_minusW(1)) = *(StgWord16*)(Sp_plusB(off));
+            Sp_subW(1);
+            goto nextInsn;
+        }
+
+        case bci_PUSH32_W: {
+            int off = BCO_NEXT;
+            *(StgWord32*)(Sp_minusW(1)) = *(StgWord32*)(Sp_plusB(off));
+            Sp_subW(1);
+            goto nextInsn;
+        }
+
         case bci_PUSH_G: {
 	    int o1 = BCO_GET_LARGE_ARG;
 	    Sp(-1) = BCO_PTR(o1);

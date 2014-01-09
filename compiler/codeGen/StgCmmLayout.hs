@@ -405,9 +405,9 @@ mkVirtHeapOffsetsWithPadding
 -- than the unboxed things
 
 mkVirtHeapOffsetsWithPadding dflags is_thunk things
-  = ( bytesToWordsRoundUp dflags tot_bytes
+  = ( tot_wds
     , bytesToWordsRoundUp dflags bytes_of_ptrs
-    , concat (ptrs_w_offsets ++ non_ptrs_w_offsets)
+    , concat (ptrs_w_offsets ++ non_ptrs_w_offsets) ++ final_pad
     )
   where
     hdr_words | is_thunk   = thunkHdrSize dflags
@@ -421,6 +421,12 @@ mkVirtHeapOffsetsWithPadding dflags is_thunk things
        mapAccumL computeOffset 0 ptrs
     (tot_bytes, non_ptrs_w_offsets) =
        mapAccumL computeOffset bytes_of_ptrs non_ptrs
+
+    tot_wds = bytesToWordsRoundUp dflags tot_bytes
+
+    final_pad_size = tot_wds * word_size - tot_bytes
+    final_pad | final_pad_size > 0 = [(Left final_pad_size, tot_bytes)]
+              | otherwise          = []
 
     word_size = wORD_SIZE dflags
 
