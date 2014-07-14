@@ -18,7 +18,7 @@ module RdrHsSyn (
         mkTyFamInst, 
         mkFamDecl, 
         splitCon, mkInlinePragma,
-        splitPatSyn, toPatSynMatchGroup,
+        splitPatSyn, splitPatSynSig, toPatSynMatchGroup,
         mkRecConstrOrUpdate, -- HsExp -> [HsFieldUpdate] -> P HsExp
         mkTyClD, mkInstD,
 
@@ -470,6 +470,33 @@ toPatSynMatchGroup (L _ patsyn_name) (L _ decls) =
         parseErrorSDoc loc $
         text "pattern synonym 'where' clause must bind the pattern synonym's name" <+>
         quotes (ppr patsyn_name) $$ ppr decl
+
+-- Given two types like
+--    Eq a => P a T b
+-- and
+--    Num b => R a b
+--
+-- This returns
+-- P as the name,
+-- PrefixPatSyn [a, T, b] as the details,
+-- R a b as the result type,
+-- and (Eq a) and (Num b) as the provided and required thetas (respectively)
+splitPatSynSig :: LHsType RdrName
+      -> LHsType RdrName
+      -> P (Located RdrName, HsPatSynDetails (LHsType RdrName), LHsType RdrName, LHsContext RdrName, LHsContext RdrName)
+splitPatSynSig lty1 lty2 = do
+    (name, details) <- splitCon pat_ty
+    details' <- case details of
+        PrefixCon tys    -> return $ PrefixPatSyn tys
+        InfixCon ty1 ty2 -> return $ InfixPatSyn ty1 ty2
+        RecCon{}         -> parseErrorSDoc (getLoc lty1) $
+                              text "record syntax not supported for pattern synonym declarations:" $$ ppr lty1
+    return (name, details', res_ty, prov', req')
+  where
+    (_, prov, pat_ty) = splitLHsForAllTy lty1
+    (_, req, res_ty) = splitLHsForAllTy lty2
+    prov' = L (getLoc lty1) prov
+    req' = L (getLoc lty2) req
 
 mkDeprecatedGadtRecordDecl :: SrcSpan
                            -> Located RdrName

@@ -743,6 +743,7 @@ pprPatSynSig :: (OutputableBndr a)
              => a -> Bool -> HsPatSynDetails SDoc -> SDoc -> Maybe SDoc -> Maybe SDoc -> SDoc
 pprPatSynSig ident is_bidir args rhs_ty prov_theta req_theta
   = sep [ ptext (sLit "pattern")
+        , ptext (sLit "type")
         , thetaOpt prov_theta, name_and_args
         , colon
         , thetaOpt req_theta, rhs_ty
