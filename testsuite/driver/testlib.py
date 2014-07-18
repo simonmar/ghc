@@ -1599,7 +1599,7 @@ def normalise_errmsg( str ):
     # We sometimes see the name of the integer-gmp package on stderr,
     # but this can change (either the implementation name or the
     # version number), so we canonicalise it here
-    str = re.sub('integer-[a-z]+', 'integer-impl', str)
+    str = re.sub('integer-[a-z0-9]+', 'integer-impl', str)
     return str
 
 # normalise a .prof file, so that we can reasonably compare it against

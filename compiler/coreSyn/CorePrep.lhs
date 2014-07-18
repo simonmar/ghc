@@ -540,6 +540,10 @@ cvtLitInteger dflags mk_integer i
   , inIntRange dflags i       -- Special case for small integers in GMP
     = mkConApp integerGmpSDataCon [Lit (mkMachInt dflags i)]
 
+  | cIntegerLibraryType == IntegerGMP2
+  , inIntRange dflags i       -- Special case for small integers in GMP
+    = mkConApp integerGmp2SIDataCon [Lit (mkMachInt dflags i)]
+
   | otherwise
     = mkApps (Var mk_integer) [isNonNegative, ints]
   where isNonNegative = if i < 0 then mkConApp falseDataCon []

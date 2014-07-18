@@ -5,6 +5,9 @@ def f( name, opts ):
 def normaliseArrayPackage(str):
     return re.sub('array-[0-9]+(\.[0-9]+)*', 'array-<VERSION>', str)
 
+def normaliseIntegerPackage(str):
+    return re.sub('integer-(gmp2|gmp|simple)', 'integer-<IMPL>', str)
+
 def normaliseBytestringPackage(str):
     return re.sub('bytestring-[0-9]+(\.[0-9]+)*', 'bytestring-<VERSION>', str)
 
@@ -36,7 +39,8 @@ test('safePkg01',
      [clean_cmd('$MAKE -s --no-print-directory cleanPackageDatabase.safePkg01'),
       normalise_errmsg_fun(ignoreLdOutput),
       normalise_fun(two_normalisers(normaliseArrayPackage,
-                                    normaliseBytestringPackage))],
+                                    two_normalisers(normaliseBytestringPackage,
+                                                    normaliseIntegerPackage)))],
      run_command, 
      ['$MAKE -s --no-print-directory safePkg01 ' + make_args])
 

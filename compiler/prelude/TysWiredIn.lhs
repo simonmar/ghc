@@ -32,6 +32,9 @@ module TysWiredIn (
         -- integer-gmp only:
         integerGmpSDataCon,
 
+        -- integer-gmp2 only:
+        integerGmp2SIDataCon,
+
         -- * Double
         doubleTyCon, doubleDataCon, doubleTy, doubleTyConName,
 
@@ -162,6 +165,7 @@ wiredInTyCons = [ unitTyCon     -- Not treated like other tuples, because
               ]
            ++ (case cIntegerLibraryType of
                IntegerGMP -> [integerTyCon]
+               IntegerGMP2 -> [integerTyCon]
                _ -> [])
 \end{code}
 
@@ -217,14 +221,21 @@ typeNatKindConName, typeSymbolKindConName :: Name
 typeNatKindConName    = mkWiredInTyConName UserSyntax gHC_TYPELITS (fsLit "Nat")    typeNatKindConNameKey    typeNatKindCon
 typeSymbolKindConName = mkWiredInTyConName UserSyntax gHC_TYPELITS (fsLit "Symbol") typeSymbolKindConNameKey typeSymbolKindCon
 
--- For integer-gmp only:
+-- For integer-gmp/integer-gmp2 only:
 integerRealTyConName :: Name
 integerRealTyConName    = case cIntegerLibraryType of
                           IntegerGMP -> mkWiredInTyConName   UserSyntax gHC_INTEGER_TYPE (fsLit "Integer") integerTyConKey integerTyCon
+                          IntegerGMP2 -> mkWiredInTyConName  UserSyntax gHC_INTEGER_TYPE (fsLit "Integer") integerTyConKey integerTyCon
                           _ ->          panic "integerRealTyConName evaluated, but not integer-gmp"
+
 integerGmpSDataConName, integerGmpJDataConName :: Name
 integerGmpSDataConName = mkWiredInDataConName UserSyntax gHC_INTEGER_TYPE (fsLit "S#") integerGmpSDataConKey integerGmpSDataCon
 integerGmpJDataConName = mkWiredInDataConName UserSyntax gHC_INTEGER_TYPE (fsLit "J#") integerGmpJDataConKey integerGmpJDataCon
+
+integerGmp2SIDataConName, integerGmp2JpDataConName, integerGmp2JnDataConName :: Name
+integerGmp2SIDataConName = mkWiredInDataConName UserSyntax gHC_INTEGER_TYPE (fsLit "SI#") integerGmp2SIDataConKey integerGmp2SIDataCon
+integerGmp2JpDataConName = mkWiredInDataConName UserSyntax gHC_INTEGER_TYPE (fsLit "Jp#") integerGmp2JpDataConKey integerGmp2JpDataCon
+integerGmp2JnDataConName = mkWiredInDataConName UserSyntax gHC_INTEGER_TYPE (fsLit "Jn#") integerGmp2JnDataConKey integerGmp2JnDataCon
 
 parrTyConName, parrDataConName :: Name
 parrTyConName   = mkWiredInTyConName   BuiltInSyntax
@@ -578,11 +589,19 @@ integerTyCon = case cIntegerLibraryType of
                IntegerGMP ->
                    pcNonRecDataTyCon integerRealTyConName Nothing []
                                      [integerGmpSDataCon, integerGmpJDataCon]
+               IntegerGMP2 ->
+                   pcNonRecDataTyCon integerRealTyConName Nothing []
+                                     [integerGmp2SIDataCon, integerGmp2JpDataCon, integerGmp2JnDataCon]
                _ ->
                    panic "Evaluated integerTyCon, but not using IntegerGMP"
 
 integerGmpSDataCon :: DataCon
 integerGmpSDataCon = pcDataCon integerGmpSDataConName []
+                               [intPrimTy]
+                               integerTyCon
+
+integerGmp2SIDataCon :: DataCon
+integerGmp2SIDataCon = pcDataCon integerGmp2SIDataConName []
                                [intPrimTy]
                                integerTyCon
 
@@ -592,6 +611,17 @@ integerGmpJDataCon :: DataCon
 integerGmpJDataCon = pcDataCon integerGmpJDataConName []
                                [intPrimTy, byteArrayPrimTy]
                                integerTyCon
+
+integerGmp2JpDataCon :: DataCon
+integerGmp2JpDataCon = pcDataCon integerGmp2JpDataConName []
+                                 [byteArrayPrimTy]
+                                 integerTyCon
+
+integerGmp2JnDataCon :: DataCon
+integerGmp2JnDataCon = pcDataCon integerGmp2JnDataConName []
+                                 [byteArrayPrimTy]
+                                 integerTyCon
+
 \end{code}
 
 \begin{code}

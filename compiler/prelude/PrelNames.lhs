@@ -1592,7 +1592,14 @@ integerGmpSDataConKey, integerGmpJDataConKey :: Unique
 integerGmpSDataConKey                   = mkPreludeDataConUnique 30
 integerGmpJDataConKey                   = mkPreludeDataConUnique 31
 
-coercibleDataConKey                     = mkPreludeDataConUnique 32
+-- For integer-gmp2 only
+integerGmp2SIDataConKey, integerGmp2JpDataConKey,
+    integerGmp2JnDataConKey :: Unique
+integerGmp2SIDataConKey                 = mkPreludeDataConUnique 32
+integerGmp2JpDataConKey                 = mkPreludeDataConUnique 33
+integerGmp2JnDataConKey                 = mkPreludeDataConUnique 34
+
+coercibleDataConKey                     = mkPreludeDataConUnique 35
 \end{code}
 
 %************************************************************************
