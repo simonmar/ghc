@@ -39,7 +39,7 @@ module HsTypes (
         hsLTyVarName, hsLTyVarNames, hsLTyVarLocName, hsLTyVarLocNames,
         splitLHsInstDeclTy_maybe,
         splitHsClassTy_maybe, splitLHsClassTy_maybe,
-        splitHsFunType, splitLHsForAllTy,
+        splitHsFunType, splitLHsForAllTyFlag, splitLHsForAllTy,
         splitHsAppTys, hsTyGetAppHead_maybe, mkHsAppTys, mkHsOpTy,
 
         -- Printing
@@ -510,15 +510,22 @@ splitLHsInstDeclTy_maybe inst_ty = do
     (cls, tys) <- splitLHsClassTy_maybe ty
     return (tvs, cxt, cls, tys)
 
+splitLHsForAllTyFlag
+    :: LHsType name
+    -> (HsExplicitFlag, LHsTyVarBndrs name, HsContext name, LHsType name)
+splitLHsForAllTyFlag poly_ty
+  = case unLoc poly_ty of
+        HsParTy ty                 -> splitLHsForAllTyFlag ty
+        HsForAllTy flag tvs cxt ty -> (flag, tvs, unLoc cxt, ty)
+        _                          -> (Implicit, emptyHsQTvs, [], poly_ty)
+        -- The type vars should have been computed by now, even if they were implicit
+
 splitLHsForAllTy
     :: LHsType name 
     -> (LHsTyVarBndrs name, HsContext name, LHsType name)
 splitLHsForAllTy poly_ty
-  = case unLoc poly_ty of
-        HsParTy ty              -> splitLHsForAllTy ty
-        HsForAllTy _ tvs cxt ty -> (tvs, unLoc cxt, ty)
-        _                       -> (emptyHsQTvs, [], poly_ty)
-        -- The type vars should have been computed by now, even if they were implicit
+  = let (_, tvs, cxt, ty) = splitLHsForAllTyFlag poly_ty
+    in (tvs, cxt, ty)
 
 splitHsClassTy_maybe :: HsType name -> Maybe (name, [LHsType name])
 splitHsClassTy_maybe ty = fmap (\(L _ n, tys) -> (n, tys)) $ splitLHsClassTy_maybe (noLoc ty)

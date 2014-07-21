@@ -568,12 +568,12 @@ data Sig name
     TypeSig [Located name] (LHsType name)
 
       -- | A pattern synonym type signature
-      -- @pattern (Eq b) => P a b :: (Num a) => T a
+      -- @pattern type forall b. (Eq b) => P a b :: forall a. (Num a) => T a
   | PatSynSig (Located name)
               (HsPatSynDetails (LHsType name))
               (LHsType name)    -- Type
-              (LHsContext name) -- Provided context
-              (LHsContext name) -- Required contex
+              (HsExplicitFlag, LHsTyVarBndrs name, LHsContext name) -- Provided context
+              (HsExplicitFlag, LHsTyVarBndrs name, LHsContext name) -- Required contex
 
         -- | A type signature for a default method inside a class
         --
@@ -730,7 +730,7 @@ ppr_sig (SpecSig var ty inl)      = pragBrackets (pprSpec (unLoc var) (ppr ty) i
 ppr_sig (InlineSig var inl)       = pragBrackets (ppr inl <+> pprPrefixOcc (unLoc var))
 ppr_sig (SpecInstSig ty)          = pragBrackets (ptext (sLit "SPECIALIZE instance") <+> ppr ty)
 ppr_sig (MinimalSig bf)           = pragBrackets (pprMinimalSig bf)
-ppr_sig (PatSynSig name arg_tys ty prov req)
+ppr_sig (PatSynSig name arg_tys ty (_, _, prov) (_, _, req))
   = pprPatSynSig (unLoc name) False args (ppr ty) (pprCtx prov) (pprCtx req)
   where
     args = fmap ppr arg_tys

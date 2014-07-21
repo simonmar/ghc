@@ -483,7 +483,9 @@ toPatSynMatchGroup (L _ patsyn_name) (L _ decls) =
 -- and (Eq a) and (Num b) as the provided and required thetas (respectively)
 splitPatSynSig :: LHsType RdrName
       -> LHsType RdrName
-      -> P (Located RdrName, HsPatSynDetails (LHsType RdrName), LHsType RdrName, LHsContext RdrName, LHsContext RdrName)
+      -> P (Located RdrName, HsPatSynDetails (LHsType RdrName), LHsType RdrName,
+            (HsExplicitFlag, LHsTyVarBndrs RdrName, LHsContext RdrName),
+            (HsExplicitFlag, LHsTyVarBndrs RdrName, LHsContext RdrName))
 splitPatSynSig lty1 lty2 = do
     (name, details) <- splitCon pat_ty
     details' <- case details of
@@ -491,10 +493,10 @@ splitPatSynSig lty1 lty2 = do
         InfixCon ty1 ty2 -> return $ InfixPatSyn ty1 ty2
         RecCon{}         -> parseErrorSDoc (getLoc lty1) $
                               text "record syntax not supported for pattern synonym declarations:" $$ ppr lty1
-    return (name, details', res_ty, prov', req')
+    return (name, details', res_ty, (ex_flag, ex_tvs, prov'), (univ_flag, univ_tvs, req'))
   where
-    (_, prov, pat_ty) = splitLHsForAllTy lty1
-    (_, req, res_ty) = splitLHsForAllTy lty2
+    (ex_flag, ex_tvs, prov, pat_ty) = splitLHsForAllTyFlag lty1
+    (univ_flag, univ_tvs, req, res_ty) = splitLHsForAllTyFlag lty2
     prov' = L (getLoc lty1) prov
     req' = L (getLoc lty2) req
 

@@ -841,15 +841,15 @@ renameSig ctxt sig@(MinimalSig bf)
   = do new_bf <- traverse (lookupSigOccRn ctxt sig) bf
        return (MinimalSig new_bf, emptyFVs)
 
-renameSig ctxt sig@(PatSynSig v args ty prov req)
+renameSig ctxt sig@(PatSynSig v args ty (ex_flag, _ex_tvs, prov) (univ_flag, _univ_tvs, req))
   = do	{ v' <- lookupSigOccRn ctxt sig v
         ; let doc = TypeSigCtx $ quotes (ppr v)
         ; loc <- getSrcSpanM
 
-        ; let (ty_kvs, ty_tvs) = extractHsTysRdrTyVars (ty:unLoc req)
-        ; let ty_tv_bndrs = mkHsQTvs . userHsTyVarBndrs loc $ ty_tvs
+        ; let (univ_kvs, univ_tvs) = extractHsTysRdrTyVars (ty:unLoc req)
+        ; let univ_tv_bndrs = mkHsQTvs . userHsTyVarBndrs loc $ univ_tvs
 
-        ; bindHsTyVars doc Nothing ty_kvs ty_tv_bndrs $ \ _new_tyvars -> do
+        ; bindHsTyVars doc Nothing univ_kvs univ_tv_bndrs $ \ univ_tyvars -> do
         { (req', fvs1) <- rnContext doc req
         ; (ty', fvs2) <- rnLHsType doc ty
 
@@ -865,15 +865,15 @@ renameSig ctxt sig@(PatSynSig v args ty prov req)
                               (ty2', fvs2) <- rnLHsType doc ty2
                               return (InfixPatSyn ty1' ty2', fvs1 `plusFV` fvs2)
                       in ([ty1, ty2], rnArgs)
-        ; let (arg_kvs, arg_tvs) = extractHsTysRdrTyVars (arg_tys ++ unLoc prov)
-        ; let arg_tv_bndrs = mkHsQTvs . userHsTyVarBndrs loc $ arg_tvs
+        ; let (ex_kvs, ex_tvs) = extractHsTysRdrTyVars (arg_tys ++ unLoc prov)
+        ; let ex_tv_bndrs = mkHsQTvs . userHsTyVarBndrs loc $ ex_tvs
 
-        ; bindHsTyVars doc Nothing arg_kvs arg_tv_bndrs $ \ _new_tyvars -> do
+        ; bindHsTyVars doc Nothing ex_kvs ex_tv_bndrs $ \ ex_tyvars -> do
         { (prov', fvs3) <- rnContext doc prov
         ; (args', fvs4) <- rnArgs
 
         ; let fvs = plusFVs [fvs1, fvs2, fvs3, fvs4]
-        ; return (PatSynSig v' args' ty' prov' req', fvs) }}}
+        ; return (PatSynSig v' args' ty' (ex_flag, ex_tyvars, prov') (univ_flag, univ_tyvars, req'), fvs) }}}
 
 ppr_sig_bndrs :: [Located RdrName] -> SDoc
 ppr_sig_bndrs bs = quotes (pprWithCommas ppr bs)
