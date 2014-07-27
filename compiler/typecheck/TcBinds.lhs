@@ -16,7 +16,7 @@ module TcBinds ( tcLocalBinds, tcTopBinds, tcRecSelBinds,
 
 import {-# SOURCE #-} TcMatches ( tcGRHSsPat, tcMatchesFun )
 import {-# SOURCE #-} TcExpr  ( tcMonoExpr )
-import {-# SOURCE #-} TcPatSyn ( tcPatSynDecl, tcPatSynWrapper )
+import {-# SOURCE #-} TcPatSyn ( tcInferPatSynDecl, tcPatSynWrapper )
 
 import DynFlags
 import HsSyn
@@ -419,7 +419,7 @@ tc_single :: forall thing.
           -> LHsBind Name -> TcM thing
           -> TcM (LHsBinds TcId, thing)
 tc_single _top_lvl _sig_fn _prag_fn (L _ (PatSynBind psb)) thing_inside
-  = do { (pat_syn, aux_binds) <- tcPatSynDecl psb
+  = do { (pat_syn, aux_binds) <- tcInferPatSynDecl psb
 
        ; let tything = AConLike (PatSynCon pat_syn)
              implicit_ids = (patSynMatcher pat_syn) :

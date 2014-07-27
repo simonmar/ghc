@@ -7,7 +7,7 @@
 \begin{code}
 {-# LANGUAGE CPP #-}
 
-module TcPatSyn (tcPatSynDecl, tcPatSynWrapper) where
+module TcPatSyn (tcInferPatSynDecl, tcPatSynWrapper) where
 
 import HsSyn
 import TcPat
@@ -42,13 +42,20 @@ import TypeRep
 \end{code}
 
 \begin{code}
+tcInferPatSynDecl :: PatSynBind Name Name
+                  -> TcM (PatSyn, LHsBinds Id)
+tcInferPatSynDecl psb
+  = do { pat_ty <- newFlexiTyVarTy openTypeKind
+       ; tcPatSynDecl psb pat_ty }
+
 tcPatSynDecl :: PatSynBind Name Name
+             -> TcType
              -> TcM (PatSyn, LHsBinds Id)
 tcPatSynDecl PSB{ psb_id = lname@(L _ name), psb_args = details,
                   psb_def = lpat, psb_dir = dir }
+             pat_ty
   = do { traceTc "tcPatSynDecl {" $ ppr name $$ ppr lpat
        ; tcCheckPatSynPat lpat
-       ; pat_ty <- newFlexiTyVarTy openTypeKind
 
        ; let (arg_names, is_infix) = case details of
                  PrefixPatSyn names      -> (map unLoc names, False)
