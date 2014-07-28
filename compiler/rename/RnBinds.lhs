@@ -50,6 +50,7 @@ import FastString
 import Data.List        ( partition, sort )
 import Maybes           ( orElse )
 import Control.Monad
+import Util             ( filterOut )
 #if __GLASGOW_HASKELL__ < 709
 import Data.Traversable ( traverse )
 #endif
@@ -865,10 +866,14 @@ renameSig ctxt sig@(PatSynSig v args ty (ex_flag, _ex_tvs, prov) (univ_flag, _un
                               (ty2', fvs2) <- rnLHsType doc ty2
                               return (InfixPatSyn ty1' ty2', fvs1 `plusFV` fvs2)
                       in ([ty1, ty2], rnArgs)
-        ; let (ex_kvs, ex_tvs) = extractHsTysRdrTyVars (arg_tys ++ unLoc prov)
-        ; let ex_tv_bndrs = mkHsQTvs . userHsTyVarBndrs loc $ ex_tvs
 
-        ; bindHsTyVars doc Nothing ex_kvs ex_tv_bndrs $ \ ex_tyvars -> do
+        ; let (ex_kvs, ex_tvs) = extractHsTysRdrTyVars (arg_tys ++ unLoc prov)
+              ex_kvs' = filterOut (`elem` univ_kvs) ex_kvs
+              ex_tvs' = filterOut (`elem` univ_tvs) ex_tvs
+
+        ; let ex_tv_bndrs = mkHsQTvs . userHsTyVarBndrs loc $ ex_tvs'
+
+        ; bindHsTyVars doc Nothing ex_kvs' ex_tv_bndrs $ \ ex_tyvars -> do
         { (prov', fvs3) <- rnContext doc prov
         ; (args', fvs4) <- rnArgs
 
