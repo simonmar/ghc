@@ -6,8 +6,15 @@ import Id        ( Id )
 import HsSyn     ( PatSynBind, LHsBinds )
 import TcRnTypes ( TcM )
 import PatSyn    ( PatSyn )
+import TcType    ( TcType, ThetaType )
+import Var       ( TyVar )
 
 tcInferPatSynDecl :: PatSynBind Name Name
+                  -> TcM (PatSyn, LHsBinds Id)
+
+tcCheckPatSynDecl :: PatSynBind Name Name
+                  -> TcType
+                  -> ([TyVar], ThetaType) -> ([TyVar], ThetaType)
                   -> TcM (PatSyn, LHsBinds Id)
 
 tcPatSynWrapper :: PatSynBind Name Name

@@ -16,7 +16,7 @@ module TcBinds ( tcLocalBinds, tcTopBinds, tcRecSelBinds,
 
 import {-# SOURCE #-} TcMatches ( tcGRHSsPat, tcMatchesFun )
 import {-# SOURCE #-} TcExpr  ( tcMonoExpr )
-import {-# SOURCE #-} TcPatSyn ( tcInferPatSynDecl, tcPatSynWrapper )
+import {-# SOURCE #-} TcPatSyn ( tcInferPatSynDecl, tcCheckPatSynDecl, tcPatSynWrapper )
 
 import DynFlags
 import HsSyn
@@ -418,9 +418,8 @@ tc_single :: forall thing.
             TopLevelFlag -> TcSigFun -> PragFun
           -> LHsBind Name -> TcM thing
           -> TcM (LHsBinds TcId, thing)
-tc_single _top_lvl _sig_fn _prag_fn (L _ (PatSynBind psb)) thing_inside
-  = do { (pat_syn, aux_binds) <- tcInferPatSynDecl psb
-
+tc_single _top_lvl sig_fn _prag_fn (L _ (PatSynBind psb@PSB{ psb_id = L _ name })) thing_inside
+  = do { (pat_syn, aux_binds) <- tc_pat_syn_decl
        ; let tything = AConLike (PatSynCon pat_syn)
              implicit_ids = (patSynMatcher pat_syn) :
                             (maybeToList (patSynWrapper pat_syn))
@@ -430,6 +429,14 @@ tc_single _top_lvl _sig_fn _prag_fn (L _ (PatSynBind psb)) thing_inside
                   thing_inside
        ; return (aux_binds, thing)
        }
+  where
+    tc_pat_syn_decl = case sig_fn name of
+        Nothing ->
+            tcInferPatSynDecl psb
+        Just TcPatSynInfo{ patsig_tau = tau, patsig_prov = prov, patsig_req = req } ->
+            tcCheckPatSynDecl psb tau prov req
+        Just _ -> panic "tc_single"
+            
 tc_single top_lvl sig_fn prag_fn lbind thing_inside
   = do { (binds1, ids, closed) <- tcPolyBinds top_lvl sig_fn prag_fn
                                     NonRecursive NonRecursive
@@ -581,6 +588,9 @@ tcPolyCheck rec_tc prag_fn
                     | otherwise                                     = NotTopLevel
        ; return (unitBag abs_bind, [poly_id], closed) }
 
+tcPolyCheck _rec_tc _prag_fn sig _bind
+  = pprPanic "tcPolyCheck" (ppr sig)
+
 ------------------
 tcPolyInfer 
   :: RecFlag       -- Whether it's recursive after breaking
@@ -638,7 +648,8 @@ mkExport prag_fn qtvs theta (poly_name, mb_sig, mono_id)
   = do  { mono_ty <- zonkTcType (idType mono_id)
 
         ; poly_id <- case mb_sig of
-                       Just sig -> return (sig_id sig)
+                       Just TcSigInfo{ sig_id = id } -> return id
+                       Just _ -> panic "mkExport"
                        Nothing  -> mkInferredPolyId poly_name qtvs theta mono_ty
 
         -- NB: poly_id has a zonked type
@@ -1283,8 +1294,9 @@ tcTySigs hs_sigs
   = checkNoErrs $   -- See Note [Fail eagerly on bad signatures]
     do { ty_sigs_s<- mapAndRecoverM tcTySig hs_sigs
        ; let ty_sigs = concat ty_sigs_s
-             env = mkNameEnv [(idName (sig_id sig), sig) | sig <- ty_sigs]
-       ; return (map sig_id ty_sigs, lookupNameEnv env) }
+             poly_ids = [id | TcSigInfo{ sig_id = id } <- ty_sigs]
+             env = mkNameEnv [(getName sig, sig) | sig <- ty_sigs]
+       ; return (poly_ids, lookupNameEnv env) }
 
 tcTySig :: LSig Name -> TcM [TcSigInfo]
 tcTySig (L loc (IdSig id))
@@ -1294,6 +1306,23 @@ tcTySig (L loc (TypeSig names@(L _ name1 : _) hs_ty))
   = setSrcSpan loc $ 
     do { sigma_ty <- tcHsSigType (FunSigCtxt name1) hs_ty
        ; mapM (instTcTySig hs_ty sigma_ty) (map unLoc names) }
+tcTySig (L loc (PatSynSig (L _ name) args ty (_, ex_tvs, prov) (_, univ_tvs, req)))
+  = setSrcSpan loc $
+    do { traceTc "tcTySig" $ ppr name $$ ppr ty $$ ppr prov $$ ppr req
+       ; let ctxt = FunSigCtxt name
+       ; tcHsTyVarBndrs univ_tvs $ \ univ_tvs' -> do
+       { ty' <- tcHsSigType ctxt ty
+       ; req' <- tcHsContext req
+       ; tcHsTyVarBndrs ex_tvs $ \ ex_tvs' -> do
+       { args' <- mapM (tcHsSigType ctxt) $ case args of
+           PrefixPatSyn tys -> tys
+           InfixPatSyn ty1 ty2 -> [ty1, ty2]
+       ; prov' <- tcHsContext prov
+       ; traceTc "tcTySig" $ ppr ty' $$ ppr args' $$ ppr (ex_tvs', prov') $$ ppr (univ_tvs', req')
+       ; return [TcPatSynInfo{ patsig_name = name,
+                               patsig_tau = mkFunTys args' ty',
+                               patsig_prov = (ex_tvs', prov'),
+                               patsig_req = (univ_tvs', req') }]}}}
 tcTySig _ = return []
 
 instTcTySigFromId :: SrcSpan -> Id -> TcM TcSigInfo

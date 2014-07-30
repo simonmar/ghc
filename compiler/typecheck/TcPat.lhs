@@ -152,6 +152,12 @@ data TcSigInfo
 
         sig_loc    :: SrcSpan       -- The location of the signature
     }
+  | TcPatSynInfo {
+        patsig_name  :: Name,
+        patsig_tau   :: TcSigmaType,
+        patsig_prov  :: ([TcTyVar], TcThetaType),
+        patsig_req   :: ([TcTyVar], TcThetaType)
+    }
 
 findScopedTyVars  -- See Note [Binding scoped type variables]
   :: LHsType Name             -- The HsType
@@ -171,10 +177,15 @@ findScopedTyVars hs_ty sig_ty inst_tvs
     scoped_names = mkNameSet (hsExplicitTvs hs_ty)
     (sig_tvs,_)  = tcSplitForAllTys sig_ty
 
+instance NamedThing TcSigInfo where
+    getName TcSigInfo{ sig_id = id } = idName id
+    getName TcPatSynInfo { patsig_name = name } = name
+
 instance Outputable TcSigInfo where
     ppr (TcSigInfo { sig_id = id, sig_tvs = tyvars, sig_theta = theta, sig_tau = tau})
         = ppr id <+> dcolon <+> vcat [ pprSigmaType (mkSigmaTy (map snd tyvars) theta tau)
                                      , ppr (map fst tyvars) ]
+    ppr (TcPatSynInfo { patsig_name = name}) = text "TcPatSynInfo" <+> ppr name
 \end{code}
 
 Note [Binding scoped type variables]

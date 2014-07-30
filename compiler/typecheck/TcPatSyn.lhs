@@ -7,7 +7,7 @@
 \begin{code}
 {-# LANGUAGE CPP #-}
 
-module TcPatSyn (tcInferPatSynDecl, tcPatSynWrapper) where
+module TcPatSyn (tcInferPatSynDecl, tcCheckPatSynDecl, tcPatSynWrapper) where
 
 import HsSyn
 import TcPat
@@ -28,6 +28,7 @@ import IdInfo( IdDetails( VanillaId ) )
 import TcBinds
 import BasicTypes
 import TcSimplify
+import TcUnify
 import TcType
 import VarSet
 #if __GLASGOW_HASKELL__ < 709
@@ -44,17 +45,9 @@ import TypeRep
 \begin{code}
 tcInferPatSynDecl :: PatSynBind Name Name
                   -> TcM (PatSyn, LHsBinds Id)
-tcInferPatSynDecl psb
+tcInferPatSynDecl PSB{ psb_id = lname@(L _ name), psb_args = details,
+                       psb_def = lpat, psb_dir = dir }
   = do { pat_ty <- newFlexiTyVarTy openTypeKind
-       ; tcPatSynDecl psb pat_ty }
-
-tcPatSynDecl :: PatSynBind Name Name
-             -> TcType
-             -> TcM (PatSyn, LHsBinds Id)
-tcPatSynDecl PSB{ psb_id = lname@(L _ name), psb_args = details,
-                  psb_def = lpat, psb_dir = dir }
-             pat_ty
-  = do { traceTc "tcPatSynDecl {" $ ppr name $$ ppr lpat
        ; tcCheckPatSynPat lpat
 
        ; let (arg_names, is_infix) = case details of
@@ -65,7 +58,6 @@ tcPatSynDecl PSB{ psb_id = lname@(L _ name), psb_args = details,
                                     mapM tcLookupId arg_names
        ; let named_taus = (name, pat_ty):map (\arg -> (getName arg, varType arg)) args
 
-       ; traceTc "tcPatSynDecl::wanted" (ppr named_taus $$ ppr wanted)
        ; (qtvs, req_dicts, _mr_bites, ev_binds) <- simplifyInfer True False named_taus wanted
 
        ; (ex_vars, prov_dicts) <- tcCollectEx lpat'
@@ -81,28 +73,13 @@ tcPatSynDecl PSB{ psb_id = lname@(L _ name), psb_args = details,
        ; pat_ty     <- zonkTcType pat_ty
        ; args       <- mapM zonkId args
 
-       ; traceTc "tcPatSynDecl: ex" (ppr ex_tvs $$
-                                     ppr prov_theta $$
-                                     ppr prov_dicts)
-       ; traceTc "tcPatSynDecl: univ" (ppr univ_tvs $$
-                                       ppr req_theta $$
-                                       ppr req_dicts $$
-                                       ppr ev_binds)
-
        ; let theta = prov_theta ++ req_theta
-
-       ; traceTc "tcPatSynDecl: type" (ppr name $$
-                                       ppr univ_tvs $$
-                                       ppr (map varType args) $$
-                                       ppr pat_ty)
-
        ; (matcher_id, matcher_bind) <- tcPatSynMatcher lname lpat' args
                                          univ_tvs ex_tvs
                                          ev_binds
                                          prov_dicts req_dicts
                                          prov_theta req_theta
                                          pat_ty
-
        ; wrapper_id <- if isBidirectional dir
                        then fmap Just $ mkPatSynWrapperId lname args univ_tvs ex_tvs theta pat_ty
                        else return Nothing
@@ -116,6 +93,73 @@ tcPatSynDecl PSB{ psb_id = lname@(L _ name), psb_args = details,
                         matcher_id wrapper_id
        ; return (patSyn, matcher_bind) }
 
+tcCheckPatSynDecl :: PatSynBind Name Name
+                  -> TcType
+                  -> ([TyVar], ThetaType) -> ([TyVar], ThetaType)
+                  -> TcM (PatSyn, LHsBinds Id)
+tcCheckPatSynDecl PSB{ psb_id = lname@(L loc name), psb_args = details,
+                       psb_def = lpat, psb_dir = dir }
+                  tau (ex_tvs, prov_theta) (univ_tvs, req_theta)
+  = do { tcCheckPatSynPat lpat
+
+       ; prov_dicts <- newEvVars prov_theta
+       ; req_dicts <- newEvVars req_theta
+
+       ; let skol_info = SigSkol (FunSigCtxt name) (mkFunTys arg_tys pat_ty)
+                      
+       ; let (arg_names, is_infix) = case details of
+                 PrefixPatSyn names      -> (map unLoc names, False)
+                 InfixPatSyn name1 name2 -> (map unLoc [name1, name2], True)
+       -- ; (ev_binds1, (ev_binds2, (lpat', args))) <-
+       --     setSrcSpan loc $
+       --     checkConstraints skol_info univ_tvs req_dicts $
+       --     checkConstraints skol_info ex_tvs prov_dicts $
+       --     tcPat PatSyn lpat pat_ty $
+       --     mapM tcLookupId arg_names
+       -- ; let ev_binds = ev_binds1 `undefined` ev_binds2
+       ; (ev_binds, (lpat', args)) <-
+           setSrcSpan loc $
+           checkConstraints skol_info (univ_tvs ++ ex_tvs) (req_dicts ++ prov_dicts) $
+           tcPat PatSyn lpat pat_ty $
+           mapM tcLookupId arg_names
+         
+             
+         {-
+       ; (ex_vars, prov_dicts) <- tcCollectEx lpat'
+       ; let univ_tvs   = filter (not . (`elemVarSet` ex_vars)) qtvs
+             ex_tvs     = varSetElems ex_vars
+             prov_theta = map evVarPred prov_dicts
+             req_theta  = map evVarPred req_dicts
+
+       ; univ_tvs   <- mapM zonkQuantifiedTyVar univ_tvs
+       ; ex_tvs     <- mapM zonkQuantifiedTyVar ex_tvs
+       ; prov_theta <- zonkTcThetaType prov_theta
+       ; req_theta  <- zonkTcThetaType req_theta
+       ; pat_ty     <- zonkTcType pat_ty
+       ; args       <- mapM zonkId args
+-}
+                                                   
+       ; (matcher_id, matcher_bind) <- tcPatSynMatcher lname lpat' args
+                                         univ_tvs ex_tvs
+                                         ev_binds
+                                         prov_dicts req_dicts
+                                         prov_theta req_theta
+                                         pat_ty
+       ; wrapper_id <- if isBidirectional dir
+                       then fmap Just $ mkPatSynWrapperId lname args univ_tvs ex_tvs theta pat_ty
+                       else return Nothing
+
+       ; traceTc "tcPatSynDecl }" $ ppr name
+       ; let patSyn = mkPatSyn name is_infix
+                        (map varType args)
+                        univ_tvs ex_tvs
+                        prov_theta req_theta
+                        pat_ty
+                        matcher_id wrapper_id
+       ; return (patSyn, matcher_bind) }
+  where
+    theta = prov_theta ++ req_theta
+    (arg_tys, pat_ty) = tcSplitFunTys tau
 \end{code}
 
 
