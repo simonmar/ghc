@@ -761,11 +761,13 @@ pprIfaceDecl ss (IfaceSyn { ifName = tycon, ifTyVars = tyvars
 
 pprIfaceDecl _ (IfacePatSyn { ifName = name, ifPatWrapper = wrapper,
                               ifPatIsInfix = is_infix,
-                              ifPatUnivTvs = _univ_tvs, ifPatExTvs = _ex_tvs,
+                              ifPatUnivTvs = univ_tvs, ifPatExTvs = ex_tvs,
                               ifPatProvCtxt = prov_ctxt, ifPatReqCtxt = req_ctxt,
                               ifPatArgs = args,
                               ifPatTy = ty })
-  = pprPatSynSig name has_wrap args' ty' (pprCtxt prov_ctxt) (pprCtxt req_ctxt)
+  = pprPatSynSig name has_wrap args' ty'
+                 (pprCtxt ex_tvs prov_ctxt)
+                 (pprCtxt univ_tvs req_ctxt)
   where
     has_wrap = isJust wrapper
     args' = case (is_infix, args) of
@@ -776,8 +778,7 @@ pprIfaceDecl _ (IfacePatSyn { ifName = name, ifPatWrapper = wrapper,
 
     ty' = pprParendIfaceType ty
 
-    pprCtxt [] = Nothing
-    pprCtxt ctxt = Just $ pprIfaceContext ctxt
+    pprCtxt tvs ctxt = pprIfaceForAllPart tvs ctxt empty
 
 pprIfaceDecl ss (IfaceId { ifName = var, ifType = ty,
                               ifIdDetails = details, ifIdInfo = info })

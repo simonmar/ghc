@@ -730,33 +730,24 @@ ppr_sig (SpecSig var ty inl)      = pragBrackets (pprSpec (unLoc var) (ppr ty) i
 ppr_sig (InlineSig var inl)       = pragBrackets (ppr inl <+> pprPrefixOcc (unLoc var))
 ppr_sig (SpecInstSig ty)          = pragBrackets (ptext (sLit "SPECIALIZE instance") <+> ppr ty)
 ppr_sig (MinimalSig bf)           = pragBrackets (pprMinimalSig bf)
-ppr_sig (PatSynSig name arg_tys ty (_, _, prov) (_, _, req))
+ppr_sig (PatSynSig name arg_tys ty prov req)
   = pprPatSynSig (unLoc name) False args (ppr ty) (pprCtx prov) (pprCtx req)
   where
     args = fmap ppr arg_tys
 
-    pprCtx lctx = case unLoc lctx of
-        [] -> Nothing
-        ctx -> Just (pprHsContextNoArrow ctx)
+    pprCtx (flag, tvs, lctx) = pprHsForAll flag tvs lctx
 
 pprPatSynSig :: (OutputableBndr a)
-             => a -> Bool -> HsPatSynDetails SDoc -> SDoc -> Maybe SDoc -> Maybe SDoc -> SDoc
-pprPatSynSig ident is_bidir args rhs_ty prov_theta req_theta
-  = sep [ ptext (sLit "pattern")
-        , ptext (sLit "type")
-        , thetaOpt prov_theta, name_and_args
-        , colon
-        , thetaOpt req_theta, rhs_ty
-        ]
+             => a -> Bool -> HsPatSynDetails SDoc -> SDoc -> SDoc -> SDoc -> SDoc
+pprPatSynSig ident is_bidir args rhs_ty prov req
+  = ptext (sLit "pattern type") <+>
+    prov <+> name_and_args <+> colon <+> req <+> rhs_ty
   where
     name_and_args = case args of
         PrefixPatSyn arg_tys ->
             pprPrefixOcc ident <+> sep arg_tys
         InfixPatSyn left_ty right_ty ->
             left_ty <+> pprInfixOcc ident <+> right_ty
-
-    -- TODO: support explicit foralls
-    thetaOpt = maybe empty (<+> darrow)
 
     colon = if is_bidir then dcolon else dcolon -- TODO
 
