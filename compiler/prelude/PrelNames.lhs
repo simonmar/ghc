@@ -1328,7 +1328,7 @@ addrPrimTyConKey, arrayPrimTyConKey, arrayArrayPrimTyConKey, boolTyConKey, byteA
     floatPrimTyConKey, floatTyConKey, funTyConKey, intPrimTyConKey,
     intTyConKey, int8TyConKey, int16TyConKey, int32PrimTyConKey,
     int32TyConKey, int64PrimTyConKey, int64TyConKey,
-    integerTyConKey,
+    integerTyConKey, bigNatTyConKey,
     listTyConKey, foreignObjPrimTyConKey, weakPrimTyConKey,
     mutableArrayPrimTyConKey, mutableArrayArrayPrimTyConKey, mutableByteArrayPrimTyConKey,
     orderingTyConKey, mVarPrimTyConKey, ratioTyConKey, rationalTyConKey,
@@ -1355,7 +1355,7 @@ int32TyConKey                           = mkPreludeTyConUnique 19
 int64PrimTyConKey                       = mkPreludeTyConUnique 20
 int64TyConKey                           = mkPreludeTyConUnique 21
 integerTyConKey                         = mkPreludeTyConUnique 22
-
+bigNatTyConKey                          = mkPreludeTyConUnique 23
 listTyConKey                            = mkPreludeTyConUnique 24
 foreignObjPrimTyConKey                  = mkPreludeTyConUnique 25
 weakPrimTyConKey                        = mkPreludeTyConUnique 27
@@ -1594,12 +1594,13 @@ integerGmpJDataConKey                   = mkPreludeDataConUnique 31
 
 -- For integer-gmp2 only
 integerGmp2SIDataConKey, integerGmp2JpDataConKey,
-    integerGmp2JnDataConKey :: Unique
+    integerGmp2JnDataConKey, bigNatDataConKey :: Unique
 integerGmp2SIDataConKey                 = mkPreludeDataConUnique 32
 integerGmp2JpDataConKey                 = mkPreludeDataConUnique 33
 integerGmp2JnDataConKey                 = mkPreludeDataConUnique 34
+bigNatDataConKey                        = mkPreludeDataConUnique 35
 
-coercibleDataConKey                     = mkPreludeDataConUnique 35
+coercibleDataConKey                     = mkPreludeDataConUnique 36
 \end{code}
 
 %************************************************************************

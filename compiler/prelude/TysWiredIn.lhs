@@ -165,7 +165,7 @@ wiredInTyCons = [ unitTyCon     -- Not treated like other tuples, because
               ]
            ++ (case cIntegerLibraryType of
                IntegerGMP -> [integerTyCon]
-               IntegerGMP2 -> [integerTyCon]
+               IntegerGMP2 -> [integerTyCon, bigNatTyCon]
                _ -> [])
 \end{code}
 
@@ -237,6 +237,11 @@ integerGmp2SIDataConName = mkWiredInDataConName UserSyntax gHC_INTEGER_TYPE (fsL
 integerGmp2JpDataConName = mkWiredInDataConName UserSyntax gHC_INTEGER_TYPE (fsLit "Jp#") integerGmp2JpDataConKey integerGmp2JpDataCon
 integerGmp2JnDataConName = mkWiredInDataConName UserSyntax gHC_INTEGER_TYPE (fsLit "Jn#") integerGmp2JnDataConKey integerGmp2JnDataCon
 
+-- GHC.Integer.Type.BigNat
+bigNatTyConName, bigNatDataConName :: Name
+bigNatTyConName   = mkWiredInTyConName   UserSyntax gHC_INTEGER_TYPE (fsLit "BigNat") bigNatTyConKey bigNatTyCon
+bigNatDataConName = mkWiredInDataConName UserSyntax gHC_INTEGER_TYPE (fsLit "BN#")  bigNatDataConKey bigNatDataCon
+
 parrTyConName, parrDataConName :: Name
 parrTyConName   = mkWiredInTyConName   BuiltInSyntax
                     gHC_PARR' (fsLit "[::]") parrTyConKey parrTyCon
@@ -288,8 +293,11 @@ pcTyCon is_enum is_rec is_prom name cType tyvars cons
 pcDataCon :: Name -> [TyVar] -> [Type] -> TyCon -> DataCon
 pcDataCon = pcDataConWithFixity False
 
+pcDataConWithBangs :: [HsBang] -> Name -> [TyVar] -> [Type] -> TyCon -> DataCon
+pcDataConWithBangs bangs n = pcDataConWithFixity' False n (incrUnique (nameUnique n)) bangs
+
 pcDataConWithFixity :: Bool -> Name -> [TyVar] -> [Type] -> TyCon -> DataCon
-pcDataConWithFixity infx n = pcDataConWithFixity' infx n (incrUnique (nameUnique n))
+pcDataConWithFixity infx n = pcDataConWithFixity' infx n (incrUnique (nameUnique n)) []
 -- The Name's unique is the first of two free uniques;
 -- the first is used for the datacon itself,
 -- the second is used for the "worker name"
@@ -297,15 +305,15 @@ pcDataConWithFixity infx n = pcDataConWithFixity' infx n (incrUnique (nameUnique
 -- To support this the mkPreludeDataConUnique function "allocates"
 -- one DataCon unique per pair of Ints.
 
-pcDataConWithFixity' :: Bool -> Name -> Unique -> [TyVar] -> [Type] -> TyCon -> DataCon
+pcDataConWithFixity' :: Bool -> Name -> Unique -> [HsBang] -> [TyVar] -> [Type] -> TyCon -> DataCon
 -- The Name should be in the DataName name space; it's the name
 -- of the DataCon itself.
 
-pcDataConWithFixity' declared_infix dc_name wrk_key tyvars arg_tys tycon
+pcDataConWithFixity' declared_infix dc_name wrk_key arg_bangs tyvars arg_tys tycon
   = data_con
   where
     data_con = mkDataCon dc_name declared_infix
-                (map (const HsNoBang) arg_tys)
+                bangs
                 []      -- No labelled fields
                 tyvars
                 []      -- No existential type variables
@@ -322,6 +330,8 @@ pcDataConWithFixity' declared_infix dc_name wrk_key tyvars arg_tys tycon
     wrk_occ  = mkDataConWorkerOcc (nameOccName dc_name)
     wrk_name = mkWiredInName modu wrk_occ wrk_key
                              (AnId (dataConWorkId data_con)) UserSyntax
+    bangs | null arg_bangs = map (const HsNoBang) arg_tys
+          | otherwise      = arg_bangs
 \end{code}
 
 
@@ -613,14 +623,27 @@ integerGmpJDataCon = pcDataCon integerGmpJDataConName []
                                integerTyCon
 
 integerGmp2JpDataCon :: DataCon
-integerGmp2JpDataCon = pcDataCon integerGmp2JpDataConName []
-                                 [byteArrayPrimTy]
-                                 integerTyCon
+integerGmp2JpDataCon = pcDataConWithBangs
+                           [HsUserBang (Just True) True]
+                           integerGmp2JpDataConName []
+                           [bigNatTy]
+                           integerTyCon
 
 integerGmp2JnDataCon :: DataCon
-integerGmp2JnDataCon = pcDataCon integerGmp2JnDataConName []
-                                 [byteArrayPrimTy]
-                                 integerTyCon
+integerGmp2JnDataCon = pcDataConWithBangs
+                           [HsUserBang (Just True) True]
+                           integerGmp2JnDataConName []
+                           [bigNatTy]
+                           integerTyCon
+
+bigNatTy :: Type
+bigNatTy = mkTyConTy bigNatTyCon
+
+bigNatTyCon :: TyCon
+bigNatTyCon = pcNonRecDataTyCon bigNatTyConName Nothing [] [bigNatDataCon]
+
+bigNatDataCon :: DataCon
+bigNatDataCon = pcDataCon bigNatDataConName [] [byteArrayPrimTy] bigNatTyCon
 
 \end{code}
 
