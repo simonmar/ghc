@@ -431,11 +431,9 @@ tc_single _top_lvl sig_fn _prag_fn (L _ (PatSynBind psb@PSB{ psb_id = L _ name }
        }
   where
     tc_pat_syn_decl = case sig_fn name of
-        Nothing ->
-            tcInferPatSynDecl psb
-        Just TcPatSynInfo{ patsig_tau = tau, patsig_prov = prov, patsig_req = req } ->
-            tcCheckPatSynDecl psb tau prov req
-        Just _ -> panic "tc_single"
+        Nothing -> tcInferPatSynDecl psb
+        Just (TcPatSynInfo tpsi) -> tcCheckPatSynDecl psb tpsi
+        Just _  -> panic "tc_single"
             
 tc_single top_lvl sig_fn prag_fn lbind thing_inside
   = do { (binds1, ids, closed) <- tcPolyBinds top_lvl sig_fn prag_fn
@@ -1320,10 +1318,13 @@ tcTySig (L loc (PatSynSig (L _ name) args ty (_, ex_tvs, prov) (_, univ_tvs, req
            InfixPatSyn ty1 ty2 -> [ty1, ty2]
        ; prov' <- tcHsContext prov
        ; traceTc "tcTySig" $ ppr ty' $$ ppr args' $$ ppr (ex_tvs', prov') $$ ppr (univ_tvs', req')
-       ; return [TcPatSynInfo{ patsig_name = name,
-                               patsig_tau = mkFunTys args' ty',
-                               patsig_prov = (ex_tvs', prov'),
-                               patsig_req = (univ_tvs', req') }]}}}
+       ; let tpsi = TPSI{ patsig_name = name,
+                          patsig_tau = mkFunTys args' ty',
+                          patsig_ex = ex_tvs',
+                          patsig_prov = prov',
+                          patsig_univ = univ_tvs',
+                          patsig_req = req' }
+       ; return [TcPatSynInfo tpsi]}}}
 tcTySig _ = return []
 
 instTcTySigFromId :: SrcSpan -> Id -> TcM TcSigInfo

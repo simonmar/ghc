@@ -94,14 +94,15 @@ tcInferPatSynDecl PSB{ psb_id = lname@(L _ name), psb_args = details,
        ; return (patSyn, matcher_bind) }
 
 tcCheckPatSynDecl :: PatSynBind Name Name
-                  -> TcType
-                  -> ([TyVar], ThetaType) -> ([TyVar], ThetaType)
+                  -> TcPatSynInfo
                   -> TcM (PatSyn, LHsBinds Id)
 tcCheckPatSynDecl PSB{ psb_id = lname@(L loc name), psb_args = details,
                        psb_def = lpat, psb_dir = dir }
-                  tau (ex_tvs, prov_theta) (univ_tvs, req_theta)
-  = do { tcCheckPatSynPat lpat
-
+                  TPSI{ patsig_tau = tau,
+                        patsig_ex = ex_tvs, patsig_univ = univ_tvs,
+                        patsig_prov = prov_theta, patsig_req = req_theta }
+  = setSrcSpan loc $
+    do { tcCheckPatSynPat lpat
        ; prov_dicts <- newEvVars prov_theta
        ; req_dicts <- newEvVars req_theta
 
