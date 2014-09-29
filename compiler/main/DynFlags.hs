@@ -548,6 +548,7 @@ data ExtensionFlag
    | Opt_DeriveFoldable
    | Opt_DeriveGeneric            -- Allow deriving Generic/1
    | Opt_DefaultSignatures        -- Allow extra signatures for defmeths
+   | Opt_DerivingViaGenerics      -- Allow deriving classes via GHC.Generics
 
    | Opt_TypeSynonymInstances
    | Opt_FlexibleContexts
@@ -2896,6 +2897,7 @@ xFlags = [
   ( "DeriveFunctor",                    Opt_DeriveFunctor, nop ),
   ( "DeriveTraversable",                Opt_DeriveTraversable, nop ),
   ( "DeriveFoldable",                   Opt_DeriveFoldable, nop ),
+  ( "DerivingViaGenerics",              Opt_DerivingViaGenerics, nop ),
   ( "DeriveGeneric",                    Opt_DeriveGeneric, nop ),
   ( "DefaultSignatures",                Opt_DefaultSignatures, nop ),
   ( "TypeSynonymInstances",             Opt_TypeSynonymInstances, nop ),
