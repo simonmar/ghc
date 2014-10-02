@@ -362,10 +362,13 @@ genericTyConNames :: [Name]
 genericTyConNames = [
     v1TyConName, u1TyConName, par1TyConName, rec1TyConName,
     k1TyConName, m1TyConName, sumTyConName, prodTyConName,
-    compTyConName, rTyConName, pTyConName, dTyConName,
-    cTyConName, sTyConName, rec0TyConName, par0TyConName,
+    compTyConName, rTyConName, dTyConName,
+    cTyConName, sTyConName, rec0TyConName,
     d1TyConName, c1TyConName, s1TyConName, noSelTyConName,
-    repTyConName, rep1TyConName
+    repTyConName, rep1TyConName,
+    prefixIDataConName, infixIDataConName, leftAssociativeDataConName,
+    rightAssociativeDataConName, notAssociativeDataConName,
+    metaDataDataConName, metaConsDataConName, metaSelDataConName
   ]
 \end{code}
 
@@ -384,8 +387,9 @@ pRELUDE         = mkBaseModule_ pRELUDE_NAME
 
 gHC_PRIM, gHC_TYPES, gHC_GENERICS, gHC_MAGIC,
     gHC_CLASSES, gHC_BASE, gHC_ENUM, gHC_GHCI, gHC_CSTRING,
-    gHC_SHOW, gHC_READ, gHC_NUM, gHC_INTEGER_TYPE, gHC_LIST,
-    gHC_TUPLE, dATA_TUPLE, dATA_EITHER, dATA_STRING, dATA_FOLDABLE, dATA_TRAVERSABLE, dATA_MONOID,
+    gHC_SHOW, gHC_READ, gHC_NUM, gHC_INTEGER_TYPE, gHC_LIST, gHC_TUPLE,
+    dATA_TUPLE, dATA_EITHER, dATA_MAYBE, dATA_STRING,
+    dATA_FOLDABLE, dATA_TRAVERSABLE, dATA_MONOID,
     gHC_CONC, gHC_IO, gHC_IO_Exception,
     gHC_ST, gHC_ARR, gHC_STABLE, gHC_PTR, gHC_ERR, gHC_REAL,
     gHC_FLOAT, gHC_TOP_HANDLER, sYSTEM_IO, dYNAMIC,
@@ -411,6 +415,7 @@ gHC_LIST        = mkBaseModule (fsLit "GHC.List")
 gHC_TUPLE       = mkPrimModule (fsLit "GHC.Tuple")
 dATA_TUPLE      = mkBaseModule (fsLit "Data.Tuple")
 dATA_EITHER     = mkBaseModule (fsLit "Data.Either")
+dATA_MAYBE      = mkBaseModule (fsLit "Data.Maybe")
 dATA_STRING     = mkBaseModule (fsLit "Data.String")
 dATA_FOLDABLE   = mkBaseModule (fsLit "Data.Foldable")
 dATA_TRAVERSABLE= mkBaseModule (fsLit "Data.Traversable")
@@ -718,7 +723,6 @@ leftAssocDataCon_RDR  = dataQual_RDR gHC_GENERICS (fsLit "LeftAssociative")
 rightAssocDataCon_RDR = dataQual_RDR gHC_GENERICS (fsLit "RightAssociative")
 notAssocDataCon_RDR   = dataQual_RDR gHC_GENERICS (fsLit "NotAssociative")
 
-
 fmap_RDR, pure_RDR, ap_RDR, foldable_foldr_RDR, foldMap_RDR,
     traverse_RDR, mempty_RDR, mappend_RDR :: RdrName
 fmap_RDR                = varQual_RDR gHC_BASE (fsLit "fmap")
@@ -774,17 +778,24 @@ eitherTyConName   = tcQual  dATA_EITHER (fsLit "Either") eitherTyConKey
 leftDataConName   = conName dATA_EITHER (fsLit "Left")   leftDataConKey
 rightDataConName  = conName dATA_EITHER (fsLit "Right")  rightDataConKey
 
+maybeTyConName, justDataConName, nothingDataConName :: Name
+maybeTyConName      = tcQual  gHC_BASE (fsLit "Maybe")    maybeTyConKey
+justDataConName     = conName gHC_BASE (fsLit "Just")     justDataConKey
+nothingDataConName  = conName gHC_BASE (fsLit "Nothing")  nothingDataConKey
+
 -- Generics (types)
-v1TyConName, u1TyConName, par1TyConName, rec1TyConName,
+v1TyConName, u1TyConName, rec1TyConName, par1TyConName,
   k1TyConName, m1TyConName, sumTyConName, prodTyConName,
-  compTyConName, rTyConName, pTyConName, dTyConName,
-  cTyConName, sTyConName, rec0TyConName, par0TyConName,
+  compTyConName, rTyConName, dTyConName,
+  cTyConName, sTyConName, rec0TyConName,
   d1TyConName, c1TyConName, s1TyConName, noSelTyConName,
-  repTyConName, rep1TyConName :: Name
+  repTyConName, rep1TyConName,
+  prefixIDataConName, infixIDataConName, leftAssociativeDataConName,
+  rightAssociativeDataConName, notAssociativeDataConName,
+  metaDataDataConName, metaConsDataConName, metaSelDataConName :: Name
 
 v1TyConName  = tcQual gHC_GENERICS (fsLit "V1") v1TyConKey
 u1TyConName  = tcQual gHC_GENERICS (fsLit "U1") u1TyConKey
-par1TyConName  = tcQual gHC_GENERICS (fsLit "Par1") par1TyConKey
 rec1TyConName  = tcQual gHC_GENERICS (fsLit "Rec1") rec1TyConKey
 k1TyConName  = tcQual gHC_GENERICS (fsLit "K1") k1TyConKey
 m1TyConName  = tcQual gHC_GENERICS (fsLit "M1") m1TyConKey
@@ -794,13 +805,12 @@ prodTyConName   = tcQual gHC_GENERICS (fsLit ":*:") prodTyConKey
 compTyConName   = tcQual gHC_GENERICS (fsLit ":.:") compTyConKey
 
 rTyConName  = tcQual gHC_GENERICS (fsLit "R") rTyConKey
-pTyConName  = tcQual gHC_GENERICS (fsLit "P") pTyConKey
 dTyConName  = tcQual gHC_GENERICS (fsLit "D") dTyConKey
 cTyConName  = tcQual gHC_GENERICS (fsLit "C") cTyConKey
 sTyConName  = tcQual gHC_GENERICS (fsLit "S") sTyConKey
 
 rec0TyConName  = tcQual gHC_GENERICS (fsLit "Rec0") rec0TyConKey
-par0TyConName  = tcQual gHC_GENERICS (fsLit "Par0") par0TyConKey
+par1TyConName  = tcQual gHC_GENERICS (fsLit "Par1") par1TyConKey
 d1TyConName  = tcQual gHC_GENERICS (fsLit "D1") d1TyConKey
 c1TyConName  = tcQual gHC_GENERICS (fsLit "C1") c1TyConKey
 s1TyConName  = tcQual gHC_GENERICS (fsLit "S1") s1TyConKey
@@ -808,6 +818,16 @@ noSelTyConName = tcQual gHC_GENERICS (fsLit "NoSelector") noSelTyConKey
 
 repTyConName  = tcQual gHC_GENERICS (fsLit "Rep")  repTyConKey
 rep1TyConName = tcQual gHC_GENERICS (fsLit "Rep1") rep1TyConKey
+
+prefixIDataConName = conName gHC_GENERICS (fsLit "PrefixI")  prefixIDataConKey
+infixIDataConName  = conName gHC_GENERICS (fsLit "InfixI")   infixIDataConKey
+leftAssociativeDataConName  = conName gHC_GENERICS (fsLit "LeftAssociative")   leftAssociativeDataConKey
+rightAssociativeDataConName = conName gHC_GENERICS (fsLit "RightAssociative")  rightAssociativeDataConKey
+notAssociativeDataConName   = conName gHC_GENERICS (fsLit "NotAssociative")    notAssociativeDataConKey
+
+metaDataDataConName = conName gHC_GENERICS (fsLit "MetaData") metaDataDataConKey
+metaConsDataConName = conName gHC_GENERICS (fsLit "MetaCons") metaConsDataConKey
+metaSelDataConName  = conName gHC_GENERICS (fsLit "MetaSel")  metaSelDataConKey
 
 -- Base strings Strings
 unpackCStringName, unpackCStringFoldrName,
@@ -1420,9 +1440,12 @@ stringTyConKey                          = mkPreludeTyConUnique 134
 v1TyConKey, u1TyConKey, par1TyConKey, rec1TyConKey,
   k1TyConKey, m1TyConKey, sumTyConKey, prodTyConKey,
   compTyConKey, rTyConKey, pTyConKey, dTyConKey,
-  cTyConKey, sTyConKey, rec0TyConKey, par0TyConKey,
+  cTyConKey, sTyConKey, rec0TyConKey,
   d1TyConKey, c1TyConKey, s1TyConKey, noSelTyConKey,
-  repTyConKey, rep1TyConKey :: Unique
+  repTyConKey, rep1TyConKey,
+  prefixIDataConKey, infixIDataConKey, leftAssociativeDataConKey,
+  rightAssociativeDataConKey, notAssociativeDataConKey,
+  metaDataDataConKey, metaConsDataConKey, metaSelDataConKey :: Unique
 
 v1TyConKey    = mkPreludeTyConUnique 135
 u1TyConKey    = mkPreludeTyConUnique 136
@@ -1442,7 +1465,6 @@ cTyConKey = mkPreludeTyConUnique 147
 sTyConKey = mkPreludeTyConUnique 148
 
 rec0TyConKey  = mkPreludeTyConUnique 149
-par0TyConKey  = mkPreludeTyConUnique 150
 d1TyConKey    = mkPreludeTyConUnique 151
 c1TyConKey    = mkPreludeTyConUnique 152
 s1TyConKey    = mkPreludeTyConUnique 153
@@ -1450,6 +1472,16 @@ noSelTyConKey = mkPreludeTyConUnique 154
 
 repTyConKey  = mkPreludeTyConUnique 155
 rep1TyConKey = mkPreludeTyConUnique 156
+
+prefixIDataConKey          = mkPreludeDataConUnique 35
+infixIDataConKey           = mkPreludeDataConUnique 36
+leftAssociativeDataConKey  = mkPreludeDataConUnique 37
+rightAssociativeDataConKey = mkPreludeDataConUnique 38
+notAssociativeDataConKey   = mkPreludeDataConUnique 39
+
+metaDataDataConKey   = mkPreludeDataConUnique 40
+metaConsDataConKey   = mkPreludeDataConUnique 41
+metaSelDataConKey    = mkPreludeDataConUnique 42
 
 -- Type-level naturals
 typeNatKindConNameKey, typeSymbolKindConNameKey,
@@ -1480,6 +1512,9 @@ specTyConKey = mkPreludeTyConUnique 177
 
 smallArrayPrimTyConKey        = mkPreludeTyConUnique  178
 smallMutableArrayPrimTyConKey = mkPreludeTyConUnique  179
+
+maybeTyConKey :: Unique
+maybeTyConKey = mkPreludeTyConUnique 180
 
 ---------------- Template Haskell -------------------
 --      USES TyConUniques 200-299
@@ -1543,6 +1578,10 @@ eqDataConKey                            = mkPreludeDataConUnique 28
 gtDataConKey                            = mkPreludeDataConUnique 29
 
 coercibleDataConKey                     = mkPreludeDataConUnique 32
+
+justDataConKey, nothingDataConKey :: Unique
+justDataConKey                          = mkPreludeDataConUnique 33
+nothingDataConKey                       = mkPreludeDataConUnique 34
 \end{code}
 
 %************************************************************************
