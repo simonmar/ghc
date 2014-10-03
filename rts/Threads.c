@@ -131,6 +131,7 @@ createThread(Capability *cap, W_ size)
     
     // ToDo: report the stack size in the event?
     traceEventCreateThread(cap, tso);
+    cap->num_threads_created++;
 
     return tso;
 }
@@ -321,6 +322,7 @@ void
 migrateThread (Capability *from, StgTSO *tso, Capability *to)
 {
     traceEventMigrateThread (from, tso, to->no);
+    from->num_threads_migrated++;
     // ThreadMigrating tells the target cap that it needs to be added to
     // the run queue when it receives the MSG_TRY_WAKEUP.
     tso->why_blocked = ThreadMigrating;
@@ -850,7 +852,8 @@ printAllThreads(void)
 
   for (i = 0; i < n_capabilities; i++) {
       cap = capabilities[i];
-      debugBelch("threads on capability %d:\n", cap->no);
+      debugBelch("threads on capability %d (%" FMT_Word "):\n",
+                 cap->no, cap->run_queue_size);
       for (t = cap->run_queue_hd; t != END_TSO_QUEUE; t = t->_link) {
 	  printThreadStatus(t);
       }

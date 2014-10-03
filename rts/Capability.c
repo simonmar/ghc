@@ -242,6 +242,7 @@ initCapability( Capability *cap, nat i )
 
     cap->run_queue_hd      = END_TSO_QUEUE;
     cap->run_queue_tl      = END_TSO_QUEUE;
+    cap->run_queue_size    = 0;
 
 #if defined(THREADED_RTS)
     initMutex(&cap->lock);
@@ -249,6 +250,7 @@ initCapability( Capability *cap, nat i )
     cap->spare_workers     = NULL;
     cap->n_spare_workers   = 0;
     cap->suspended_ccalls  = NULL;
+    cap->n_suspended_ccalls = 0;
     cap->returning_tasks_hd = NULL;
     cap->returning_tasks_tl = NULL;
     cap->inbox              = (Message*)END_TSO_QUEUE;

@@ -576,6 +576,7 @@ removeFromRunQueue (Capability *cap, StgTSO *tso)
     }
     tso->_link = tso->block_info.prev = END_TSO_QUEUE;
 
+    cap->run_queue_size--;
     IF_DEBUG(sanity, checkRunQueue(cap));
 }
 
@@ -781,9 +782,10 @@ schedulePushWork(Capability *cap USED_IF_THREADS,
                     setTSOPrev(cap, t, prev);
 		    prev = t;
 		} else {
-		    appendToRunQueue(free_caps[i],t);
+                    appendToRunQueue(free_caps[i],t);
 
                     traceEventMigrateThread (cap, t, free_caps[i]->no);
+                    cap->num_threads_migrated++;
 
 		    if (t->bound) { t->bound->task->cap = free_caps[i]; }
 		    t->cap = free_caps[i];
@@ -791,6 +793,7 @@ schedulePushWork(Capability *cap USED_IF_THREADS,
 		}
 	    }
 	    cap->run_queue_tl = prev;
+            cap->run_queue_size -= i;
 
             IF_DEBUG(sanity, checkRunQueue(cap));
 	}
@@ -1268,65 +1271,66 @@ scheduleHandleThreadFinished (Capability *cap STG_UNUSED, Task *task, StgTSO *t)
       // queue so it can be dealt with here.
       //
 
-      if (t->bound) {
+    if (!t->bound) {
+        cap->num_threads_completed++;
+        return rtsFalse;
+    }
 
-	  if (t->bound != task->incall) {
+    if (t->bound != task->incall) {
 #if !defined(THREADED_RTS)
-	      // Must be a bound thread that is not the topmost one.  Leave
-	      // it on the run queue until the stack has unwound to the
-	      // point where we can deal with this.  Leaving it on the run
-	      // queue also ensures that the garbage collector knows about
-	      // this thread and its return value (it gets dropped from the
-	      // step->threads list so there's no other way to find it).
-	      appendToRunQueue(cap,t);
-	      return rtsFalse;
+        // Must be a bound thread that is not the topmost one.  Leave
+        // it on the run queue until the stack has unwound to the
+        // point where we can deal with this.  Leaving it on the run
+        // queue also ensures that the garbage collector knows about
+        // this thread and its return value (it gets dropped from the
+        // step->threads list so there's no other way to find it).
+        appendToRunQueue(cap,t);
+        return rtsFalse;
 #else
-	      // this cannot happen in the threaded RTS, because a
-	      // bound thread can only be run by the appropriate Task.
-	      barf("finished bound thread that isn't mine");
+        // this cannot happen in the threaded RTS, because a
+        // bound thread can only be run by the appropriate Task.
+        barf("finished bound thread that isn't mine");
 #endif
-	  }
+    }
 
-	  ASSERT(task->incall->tso == t);
+    cap->num_threads_completed++;
+    ASSERT(task->incall->tso == t);
 
-	  if (t->what_next == ThreadComplete) {
-	      if (task->incall->ret) {
-                  // NOTE: return val is stack->sp[1] (see StgStartup.hc)
-                  *(task->incall->ret) = (StgClosure *)task->incall->tso->stackobj->sp[1];
-	      }
-	      task->incall->stat = Success;
-	  } else {
-	      if (task->incall->ret) {
-		  *(task->incall->ret) = NULL;
-	      }
-	      if (sched_state >= SCHED_INTERRUPTING) {
-                  if (heap_overflow) {
-                      task->incall->stat = HeapExhausted;
-                  } else {
-                      task->incall->stat = Interrupted;
-                  }
-	      } else {
-		  task->incall->stat = Killed;
-	      }
-	  }
+    if (t->what_next == ThreadComplete) {
+        if (task->incall->ret) {
+            // NOTE: return val is stack->sp[1] (see StgStartup.hc)
+            *(task->incall->ret) = (StgClosure *)task->incall->tso->stackobj->sp[1];
+        }
+        task->incall->stat = Success;
+    } else {
+        if (task->incall->ret) {
+            *(task->incall->ret) = NULL;
+        }
+        if (sched_state >= SCHED_INTERRUPTING) {
+            if (heap_overflow) {
+                task->incall->stat = HeapExhausted;
+            } else {
+                task->incall->stat = Interrupted;
+            }
+        } else {
+            task->incall->stat = Killed;
+        }
+    }
 #ifdef DEBUG
-	  removeThreadLabel((StgWord)task->incall->tso->id);
+    removeThreadLabel((StgWord)task->incall->tso->id);
 #endif
 
-          // We no longer consider this thread and task to be bound to
-          // each other.  The TSO lives on until it is GC'd, but the
-          // task is about to be released by the caller, and we don't
-          // want anyone following the pointer from the TSO to the
-          // defunct task (which might have already been
-          // re-used). This was a real bug: the GC updated
-          // tso->bound->tso which lead to a deadlock.
-          t->bound = NULL;
-          task->incall->tso = NULL;
+    // We no longer consider this thread and task to be bound to
+    // each other.  The TSO lives on until it is GC'd, but the
+    // task is about to be released by the caller, and we don't
+    // want anyone following the pointer from the TSO to the
+    // defunct task (which might have already been
+    // re-used). This was a real bug: the GC updated
+    // tso->bound->tso which lead to a deadlock.
+    t->bound = NULL;
+    task->incall->tso = NULL;
 
-	  return rtsTrue; // tells schedule() to return
-      }
-
-      return rtsFalse;
+    return rtsTrue; // tells schedule() to return
 }
 
 /* -----------------------------------------------------------------------------
@@ -1894,6 +1898,7 @@ forkProcess(HsStablePtr *entry
             // Any suspended C-calling Tasks are no more, their OS threads
             // don't exist now:
             cap->suspended_ccalls = NULL;
+            cap->n_suspended_ccalls = 0;
 
 #if defined(THREADED_RTS)
             // Wipe our spare workers list, they no longer exist.  New
@@ -2135,6 +2140,7 @@ suspendTask (Capability *cap, Task *task)
 	cap->suspended_ccalls->prev = incall;
     }
     cap->suspended_ccalls = incall;
+    cap->n_suspended_ccalls++;
 }
 
 STATIC_INLINE void
@@ -2153,6 +2159,7 @@ recoverSuspendedTask (Capability *cap, Task *task)
 	incall->next->prev = incall->prev;
     }
     incall->next = incall->prev = NULL;
+    cap->n_suspended_ccalls--;
 }
 
 /* ---------------------------------------------------------------------------

@@ -143,6 +143,7 @@ appendToRunQueue (Capability *cap, StgTSO *tso)
         setTSOPrev(cap, tso, cap->run_queue_tl);
     }
     cap->run_queue_tl = tso;
+    cap->run_queue_size++;
 }
 
 /* Push a thread on the beginning of the run queue.
@@ -163,6 +164,7 @@ pushOnRunQueue (Capability *cap, StgTSO *tso)
     if (cap->run_queue_tl == END_TSO_QUEUE) {
 	cap->run_queue_tl = tso;
     }
+    cap->run_queue_size++;
 }
 
 /* Pop the first thread off the runnable queue.
@@ -180,6 +182,7 @@ popRunQueue (Capability *cap)
     if (cap->run_queue_hd == END_TSO_QUEUE) {
 	cap->run_queue_tl = END_TSO_QUEUE;
     }
+    cap->run_queue_size--;
     return t;
 }
 
@@ -228,7 +231,7 @@ INLINE_HEADER rtsBool
 singletonRunQueue(Capability *cap)
 {
     ASSERT(!emptyRunQueue(cap));
-    return cap->run_queue_hd->_link == END_TSO_QUEUE;
+    return cap->run_queue_size == 1;
 }
 
 INLINE_HEADER void
@@ -236,6 +239,7 @@ truncateRunQueue(Capability *cap)
 {
     cap->run_queue_hd = END_TSO_QUEUE;
     cap->run_queue_tl = END_TSO_QUEUE;
+    cap->run_queue_size = 0;
 }
 
 #if !defined(THREADED_RTS)

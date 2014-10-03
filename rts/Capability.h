@@ -57,6 +57,7 @@ struct Capability_ {
     // also lock-free.
     StgTSO *run_queue_hd;
     StgTSO *run_queue_tl;
+    StgWord run_queue_size;
 
     // Tasks currently making safe foreign calls.  Doubly-linked.
     // When returning, a task first acquires the Capability before
@@ -65,6 +66,7 @@ struct Capability_ {
     // the returning_tasks list, we must also migrate its entry from
     // this list.
     InCall *suspended_ccalls;
+    StgWord n_suspended_ccalls;
 
     // One mutable list per generation, so we don't need to take any
     // locks when updating an old-generation thunk.  This also lets us
@@ -131,8 +133,12 @@ struct Capability_ {
     int io_manager_control_wr_fd;
 #endif
 #endif
-    // Total words allocated by this cap since rts start
-    W_ total_allocated;
+
+    // all-time stats
+    StgWord64 total_allocated;
+    StgWord64 num_threads_created;
+    StgWord64 num_threads_completed;
+    StgWord64 num_threads_migrated;
 
     // Per-capability STM-related data
     StgTVarWatchQueue *free_tvar_watch_queues;
@@ -166,10 +172,11 @@ struct Capability_ {
 // (a) a Task holds multiple Capabilities, and (b) when the current
 // Task is bound, its thread has just blocked, and it may have been
 // moved to another Capability.
-#define ASSERT_PARTIAL_CAPABILITY_INVARIANTS(cap,task)	\
-  ASSERT(cap->run_queue_hd == END_TSO_QUEUE ?		\
-	    cap->run_queue_tl == END_TSO_QUEUE : 1);	\
-  ASSERT(myTask() == task);				\
+#define ASSERT_PARTIAL_CAPABILITY_INVARIANTS(cap,task)                  \
+  ASSERT(cap->run_queue_hd == END_TSO_QUEUE                             \
+         ? cap->run_queue_tl == END_TSO_QUEUE && cap->run_queue_size == 0 \
+         : cap->run_queue_tl != END_TSO_QUEUE && cap->run_queue_size != 0); \
+  ASSERT(myTask() == task);                                             \
   ASSERT_TASK_ID(task);
 
 #if defined(THREADED_RTS)

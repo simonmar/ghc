@@ -70,6 +70,8 @@ static Time *GC_coll_cpu = NULL;
 static Time *GC_coll_elapsed = NULL;
 static Time *GC_coll_max_pause = NULL;
 
+static SchedStats sched_stats;
+
 static void statsFlush( void );
 static void statsClose( void );
 
@@ -314,6 +316,27 @@ calcTotalAllocated(void)
     return tot_alloc;
 }
 
+static void
+calcSchedStats (void)
+{
+    W_ n;
+
+    sched_stats.num_threads_runnable = 0;
+    sched_stats.num_threads_in_foreign_calls = 0;
+    sched_stats.num_threads_created = 0;
+    sched_stats.num_threads_completed = 0;
+    sched_stats.num_threads_migrated = 0;
+
+    for (n = 0; n < n_capabilities; n++) {
+        Capability *cap = capabilities[n];
+        sched_stats.num_threads_runnable += cap->run_queue_size;
+        sched_stats.num_threads_in_foreign_calls += cap->n_suspended_ccalls;
+        sched_stats.num_threads_created += cap->num_threads_created;
+        sched_stats.num_threads_completed += cap->num_threads_completed;
+        sched_stats.num_threads_migrated += cap->num_threads_migrated;
+    }
+}
+
 /* -----------------------------------------------------------------------------
    Called at the end of each GC
    -------------------------------------------------------------------------- */
@@ -421,6 +444,9 @@ stat_endGC (Capability *cap, gc_thread *gct,
 	}
 
         if (slop > max_slop) max_slop = slop;
+
+        // update scheduler stats
+        calcSchedStats();
     }
 
     if (rub_bell) {
@@ -967,6 +993,12 @@ extern void getSparkStats( SparkCounters *s ) {
     }
 }
 #endif
+
+extern void getStats (GCStats *gc, SchedStats *sched)
+{
+    getGCStats(gc);
+    *sched = sched_stats;
+}
 
 /* -----------------------------------------------------------------------------
    Dumping stuff in the stats file, or via the debug message interface
