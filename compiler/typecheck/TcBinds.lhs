@@ -1314,7 +1314,8 @@ tcTySig (L loc (PatSynSig (L _ name) args ty (_, ex_tvs, prov) (_, univ_tvs, req
        { ty' <- tcHsSigType ctxt ty
        ; req' <- tcHsContext req
        ; tcHsTyVarBndrs ex_tvs $ \ ex_tvs' -> do
-       { args' <- mapM (tcHsSigType ctxt) $ case args of
+       { ex_tvs' <- return $ filter (`notElem` univ_tvs') ex_tvs'
+       ; args' <- mapM (tcHsSigType ctxt) $ case args of
            PrefixPatSyn tys -> tys
            InfixPatSyn ty1 ty2 -> [ty1, ty2]
        ; prov' <- tcHsContext prov
