@@ -39,7 +39,7 @@ import Bag
 import TcEvidence
 import BuildTyCl
 import TypeRep
-import Control.Monad (forM)
+import Control.Monad (forM, forM_)
 
 #include "HsVersions.h"
 \end{code}
@@ -136,6 +136,15 @@ tcCheckPatSynDecl PSB{ psb_id = lname@(L loc name), psb_args = details,
        ; let ex_tvs'     = varSetElems ex_vars'
              prov_theta' = map evVarPred prov_dicts'
 
+
+       ; checkConstraints skol_info ex_tvs' prov_dicts' $ do
+           ctLoc <- getCtLoc PatSigOrigin
+           forM_ prov_theta $ \pred -> do
+               let ctEv = CtWanted{ ctev_pred = pred
+                                  , ctev_evar = panic "ctev_evar"
+                                  , ctev_loc = ctLoc
+                                  }
+               emitFlat $ mkNonCanonical ctEv
        ; let (args', _wraps) = unzip arg_w_wraps
              -- wrap = foldr (<.>) idHsWrapper wraps
              wrap = idHsWrapper
