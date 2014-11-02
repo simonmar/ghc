@@ -202,38 +202,21 @@ isBidirectional ExplicitBidirectional{} = True
 tcPatSynWrapper :: PatSynBind Name Name
                 -> TcM (LHsBinds Id)
 -- See Note [Matchers and wrappers for pattern synonyms] in PatSyn
-tcPatSynWrapper PSB{ psb_id = L loc name, psb_def = lpat, psb_dir = dir, psb_args = details }
+tcPatSynWrapper PSB{ psb_id = lname, psb_def = lpat, psb_dir = dir, psb_args = details }
   = case dir of
     Unidirectional -> return emptyBag
     ImplicitBidirectional ->
-        do { wrapper_id <- tcLookupPatSynWrapper name
-           ; lexpr <- case tcPatToExpr (mkNameSet args) lpat of
+        do { lexpr <- case tcPatToExpr (mkNameSet args) lpat of
                   Nothing -> cannotInvertPatSynErr lpat
                   Just lexpr -> return lexpr
            ; let wrapper_args = map (noLoc . VarPat) args
-                 wrapper_lname = L (getLoc lpat) (idName wrapper_id)
                  wrapper_match = mkMatch wrapper_args lexpr EmptyLocalBinds
-                 wrapper_bind = mkTopFunBind Generated wrapper_lname [wrapper_match]
-           ; mkPatSynWrapper wrapper_id wrapper_bind }
-    ExplicitBidirectional mg ->
-        do { wrapper_id <- tcLookupPatSynWrapper name
-           ; mkPatSynWrapper wrapper_id $
-               FunBind{ fun_id = L loc (idName wrapper_id)
-                      , fun_infix = False
-                      , fun_matches = mg
-                      , fun_co_fn = idHsWrapper
-                      , bind_fvs = placeHolderNamesTc
-                      , fun_tick = Nothing }}
+           ; mkPatSynWrapper lname $ mkMatchGroupName Generated [wrapper_match] }
+    ExplicitBidirectional mg -> mkPatSynWrapper lname mg
   where
     args = map unLoc $ case details of
         PrefixPatSyn args -> args
         InfixPatSyn arg1 arg2 -> [arg1, arg2]
-
-    tcLookupPatSynWrapper name
-      = do { patsyn <- tcLookupPatSyn name
-           ; case patSynWrapper patsyn of
-               Nothing -> panic "tcLookupPatSynWrapper"
-               Just wrapper_id -> return wrapper_id }
 
 mkPatSynWrapperId :: Located Name
                   -> [Var] -> [TyVar] -> [TyVar] -> ThetaType -> Type
@@ -243,29 +226,48 @@ mkPatSynWrapperId (L _ name) args univ_tvs ex_tvs theta pat_ty
        ; (subst, wrapper_tvs) <- tcInstSkolTyVars qtvs
        ; let wrapper_theta = substTheta subst theta
              pat_ty' = substTy subst pat_ty
-             args' = map (\arg -> setVarType arg $ substTy subst (varType arg)) args
+             need_dummy_arg = null args && isUnLiftedType pat_ty'
+             args' | need_dummy_arg = [voidArgId]
+                   | otherwise = map (\arg -> setVarType arg $ substTy subst (varType arg)) args
              wrapper_tau = mkFunTys (map varType args') pat_ty'
              wrapper_sigma = mkSigmaTy wrapper_tvs wrapper_theta wrapper_tau
 
        ; wrapper_name <- newImplicitBinder name mkDataConWrapperOcc
        ; return $ mkExportedLocalId VanillaId wrapper_name wrapper_sigma }
 
-mkPatSynWrapper :: Id
-                -> HsBind Name
+mkPatSynWrapper :: Located Name
+                -> MatchGroup Name (LHsExpr Name)
                 -> TcM (LHsBinds Id)
-mkPatSynWrapper wrapper_id bind
-  = do { (wrapper_binds, _, _) <- tcPolyCheck NonRecursive (const []) sig (noLoc bind)
+mkPatSynWrapper (L loc name) mg
+  = do { patsyn <- tcLookupPatSyn name
+       ; wrapper_id <- case patSynWrapper patsyn of
+           Nothing -> panic "mkPatSynWrapper"
+           Just wrapper_id -> return wrapper_id
+       ; let need_dummy_arg = null (patSynArgs patsyn) && isUnLiftedType (patSynType patsyn)
+             match_dummy = mkMatch [nlWildPatName] (noLoc $ HsLam mg) emptyLocalBinds
+             mg' | need_dummy_arg = mkMatchGroupName Generated [match_dummy]
+                 | otherwise = mg
+
+       ; let (wrapper_tvs, wrapper_theta, wrapper_tau) = tcSplitSigmaTy (idType wrapper_id)
+             bind = FunBind { fun_id = L loc (idName wrapper_id)
+                            , fun_infix = False
+                            , fun_matches = mg'
+                            , fun_co_fn = idHsWrapper
+                            , bind_fvs = placeHolderNamesTc
+                            , fun_tick = Nothing }
+
+             sig = TcSigInfo{ sig_id = wrapper_id
+                            , sig_tvs = map (\tv -> (Nothing, tv)) wrapper_tvs
+                            , sig_theta = wrapper_theta
+                            , sig_tau = wrapper_tau
+                            , sig_loc = noSrcSpan
+                            }
+
+       ; (wrapper_binds, _, _) <- tcPolyCheck NonRecursive (const []) sig (noLoc bind)
        ; traceTc "tcPatSynDecl wrapper" $ ppr wrapper_binds
        ; traceTc "tcPatSynDecl wrapper type" $ ppr (varType wrapper_id)
        ; return wrapper_binds }
   where
-    sig = TcSigInfo{ sig_id = wrapper_id
-                   , sig_tvs = map (\tv -> (Nothing, tv)) wrapper_tvs
-                   , sig_theta = wrapper_theta
-                   , sig_tau = wrapper_tau
-                   , sig_loc = noSrcSpan
-                   }
-    (wrapper_tvs, wrapper_theta, wrapper_tau) = tcSplitSigmaTy (idType wrapper_id)
 
 \end{code}
 

@@ -51,6 +51,7 @@ import TysWiredIn
 import TysPrim( intPrimTy )
 import PrimOp( tagToEnumKey )
 import PrelNames
+import MkId
 import DynFlags
 import SrcLoc
 import Util
@@ -1062,31 +1063,35 @@ tcInferIdWithOrig :: CtOrigin -> Name -> TcM (HsExpr TcId, TcRhoType)
 -- Look up an occurrence of an Id, and instantiate it (deeply)
 
 tcInferIdWithOrig orig id_name
-  = do { id <- lookup_id
-       ; (id_expr, id_rho) <- instantiateOuter orig id
+  = do { (id, need_dummy_arg) <- lookup_id
+       ; (id_expr, id_rho) <- instantiateOuter orig id need_dummy_arg
        ; (wrap, rho) <- deeplyInstantiate orig id_rho
        ; return (mkHsWrap wrap id_expr, rho) }
   where
-    lookup_id :: TcM TcId
+    lookup_id :: TcM (TcId, Bool)
     lookup_id
        = do { thing <- tcLookup id_name
             ; case thing of
                  ATcId { tct_id = id }
                    -> do { check_naughty id        -- Note [Local record selectors]
                          ; checkThLocalId id
-                         ; return id }
+                         ; return (id, False) }
 
                  AGlobal (AnId id)
-                   -> do { check_naughty id; return id }
+                   -> do { check_naughty id; return (id, False) }
                         -- A global cannot possibly be ill-staged
                         -- nor does it need the 'lifting' treatment
                         -- hence no checkTh stuff here
 
                  AGlobal (AConLike cl) -> case cl of
-                     RealDataCon con -> return (dataConWrapId con)
-                     PatSynCon ps -> case patSynWrapper ps of
-                         Nothing -> failWithTc (bad_patsyn ps)
-                         Just id -> return id
+                     RealDataCon con
+                       -> return (dataConWrapId con, False)
+                     PatSynCon ps
+                       -> do { let need_dummy_arg = null (patSynArgs ps) &&
+                                                    isUnLiftedType (patSynType ps)
+                             ; case patSynWrapper ps of
+                                    Nothing -> failWithTc (bad_patsyn ps)
+                                    Just id -> return (id, need_dummy_arg) }
 
                  other -> failWithTc (bad_lookup other) }
 
@@ -1099,16 +1104,17 @@ tcInferIdWithOrig orig id_name
       | otherwise                  = return ()
 
 ------------------------
-instantiateOuter :: CtOrigin -> TcId -> TcM (HsExpr TcId, TcSigmaType)
+instantiateOuter :: CtOrigin -> TcId -> Bool -> TcM (HsExpr TcId, TcSigmaType)
 -- Do just the first level of instantiation of an Id
 --   a) Deal with method sharing
 --   b) Deal with stupid checks
+--   c) Add dummy Void# arg when needed
 -- Only look at the *outer level* of quantification
 -- See Note [Multiple instantiation]
 
-instantiateOuter orig id
+instantiateOuter orig id need_dummy_arg
   | null tvs && null theta
-  = return (HsVar id, tau)
+  = return (id_expr, tau')
 
   | otherwise
   = do { (_, tys, subst) <- tcInstTyVars tvs
@@ -1116,9 +1122,13 @@ instantiateOuter orig id
        ; let theta' = substTheta subst theta
        ; traceTc "Instantiating" (ppr id <+> text "with" <+> (ppr tys $$ ppr theta'))
        ; wrap <- instCall orig tys theta'
-       ; return (mkHsWrap wrap (HsVar id), TcType.substTy subst tau) }
+       ; return (mkHsWrap wrap (id_expr), TcType.substTy subst tau') }
   where
     (tvs, theta, tau) = tcSplitSigmaTy (idType id)
+    tau' | need_dummy_arg = snd $ splitFunTy tau
+         | otherwise = tau
+    id_expr | need_dummy_arg = unLoc $ nlHsVarApps id [voidPrimId]
+            | otherwise = HsVar id
 \end{code}
 
 Note [Multiple instantiation]
