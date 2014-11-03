@@ -45,6 +45,8 @@ import Data.Maybe( catMaybes )
 import Language.Haskell.TH as TH hiding (sigP)
 import Language.Haskell.TH.Syntax as TH
 import GHC.Exts
+import Data.Char
+import qualified Data.Set as Set
 
 -------------------------------------------------------------------
 --              The external interface
@@ -1109,14 +1111,143 @@ cvtName ctxt_ns (TH.Name occ flavour)
     occ_str = TH.occString occ
 
 okOcc :: OccName.NameSpace -> String -> Bool
-okOcc _  []      = False
-okOcc ns str@(c:_)
-  | OccName.isVarNameSpace ns     = startsVarId c || startsVarSym c
-  | OccName.isDataConNameSpace ns = startsConId c || startsConSym c || str == "[]"
-  | otherwise                     = startsConId c || startsConSym c ||
-                                    startsVarSym c || str == "[]" || str == "->"
-                                     -- allow type operators like "+"
+okOcc ns str
+  | OccName.isVarNameSpace ns     = okVarOcc str
+  | OccName.isDataConNameSpace ns = okConOcc str
+  | otherwise                     = okTcOcc  str
 
+-- | Is this an acceptable variable name?
+okVarOcc :: String -> Bool
+okVarOcc str@(c:_)
+  | startsVarId c
+  = okVarIdOcc str
+  | startsVarSym c
+  = okVarSymOcc str
+okVarOcc _ = False
+
+-- | Is this an acceptable alphanumeric variable name, assuming it starts
+-- with an acceptable letter?
+okVarIdOcc :: String -> Bool
+okVarIdOcc str = okIdOcc str &&
+                 not (str `Set.member` reservedIds)
+
+-- | Is this an acceptable symbolic variable name, assuming it starts
+-- with an acceptable character?
+okVarSymOcc :: String -> Bool
+okVarSymOcc str = all okSymChar str &&
+                  not (str `Set.member` reservedOps) &&
+                  not (isDashes str)
+
+-- | Is this an acceptable constructor name?
+okConOcc :: String -> Bool
+okConOcc str@(c:_)
+  | startsConId c
+  = okConIdOcc str
+  | startsConSym c
+  = okConSymOcc str
+  | str == "[]"
+  = True
+okConOcc _ = False
+
+-- | Is this an acceptable alphanumeric constructor name, assuming it
+-- starts with an acceptable letter?
+okConIdOcc :: String -> Bool
+okConIdOcc str = okIdOcc str ||
+                 is_tuple_name1 str
+  where
+    -- check for tuple name, starting at the beginning
+    is_tuple_name1 ('(' : rest) = is_tuple_name2 rest
+    is_tuple_name1 _            = False
+
+    -- check for tuple tail
+    is_tuple_name2 ")"          = True
+    is_tuple_name2 (',' : rest) = is_tuple_name2 rest
+    is_tuple_name2 (ws  : rest)
+      | isSpace ws              = is_tuple_name2 rest
+    is_tuple_name2 _            = False
+
+-- | Is this an acceptable symbolic constructor name, assuming it
+-- starts with an acceptable character?
+okConSymOcc :: String -> Bool
+okConSymOcc ":" = True
+okConSymOcc str = all okSymChar str &&
+                  not (str `Set.member` reservedOps)
+
+-- | Is this an acceptable type name?
+okTcOcc :: String -> Bool
+okTcOcc "[]" = True
+okTcOcc "->" = True
+okTcOcc "~"  = True
+okTcOcc str@(c:_)
+  | startsConId c
+  = okConIdOcc str
+  | startsConSym c
+  = okConSymOcc str
+  | startsVarSym c
+  = okVarSymOcc str
+okTcOcc _ = False
+
+-- | Is this string an acceptable id, possibly with a suffix of hashes,
+-- but not worrying about case or clashing with reserved words?
+okIdOcc :: String -> Bool
+okIdOcc str
+  = let hashes = dropWhile okIdChar str in
+    all (== '#') hashes   -- -XMagicHash allows a suffix of hashes
+                          -- of course, `all` says "True" to an empty list
+
+-- | Is this character acceptable in an identifier (after the first letter)?
+-- See alexGetByte in Lexer.x
+okIdChar :: Char -> Bool
+okIdChar c = case generalCategory c of
+  UppercaseLetter -> True
+  LowercaseLetter -> True
+  OtherLetter     -> True
+  TitlecaseLetter -> True
+  DecimalNumber   -> True
+  OtherNumber     -> True
+  _               -> c == '\'' || c == '_'
+
+-- | Is this character acceptable in a symbol (after the first char)?
+-- See alexGetByte in Lexer.x
+okSymChar :: Char -> Bool
+okSymChar c
+  | c `elem` specialSymbols
+  = False
+  | c `elem` "_\"'"
+  = False
+  | otherwise
+  = case generalCategory c of
+      ConnectorPunctuation -> True
+      DashPunctuation      -> True
+      OtherPunctuation     -> True
+      MathSymbol           -> True
+      CurrencySymbol       -> True
+      ModifierSymbol       -> True
+      OtherSymbol          -> True
+      _                    -> False
+    
+-- | All reserved identifiers. Taken from section 2.4 of the 2010 Report.
+reservedIds :: Set.Set String
+reservedIds = Set.fromList [ "case", "class", "data", "default", "deriving"
+                           , "do", "else", "foreign", "if", "import", "in"
+                           , "infix", "infixl", "infixr", "instance", "let"
+                           , "module", "newtype", "of", "then", "type", "where"
+                           , "_" ]
+
+-- | All punctuation that cannot appear in symbols. See $special in Lexer.x.
+specialSymbols :: [Char]
+specialSymbols = "(),;[]`{}"
+
+-- | All reserved operators. Taken from section 2.4 of the 2010 Report.
+reservedOps :: Set.Set String
+reservedOps = Set.fromList [ "..", ":", "::", "=", "\\", "|", "<-", "->"
+                           , "@", "~", "=>" ]
+
+-- | Does this string contain only dashes and has at least 2 of them?
+isDashes :: String -> Bool
+isDashes ('-' : '-' : rest) = all (== '-') rest
+isDashes _                  = False
+            
 -- Determine the name space of a name in a type
 --
 isVarName :: TH.Name -> Bool

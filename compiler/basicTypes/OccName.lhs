@@ -903,13 +903,16 @@ isLexVarSym fs                          -- Infix identifiers e.g. "+"
 
 -------------
 startsVarSym, startsVarId, startsConSym, startsConId :: Char -> Bool
-startsVarSym c = isSymbolASCII c || (ord c > 0x7f && isSymbol c)  -- Infix Ids
+startsVarSym c = startsVarSymASCII c || (ord c > 0x7f && isSymbol c)  -- Infix Ids
 startsConSym c = c == ':'               -- Infix data constructors
-startsVarId c  = isLower c || c == '_'  -- Ordinary Ids
+startsVarId c  = c == '_' || case generalCategory c of  -- Ordinary Ids
+  LowercaseLetter -> True
+  OtherLetter     -> True   -- See #1103
+  _               -> False
 startsConId c  = isUpper c || c == '('  -- Ordinary type constructors and data constructors
 
-isSymbolASCII :: Char -> Bool
-isSymbolASCII c = c `elem` "!#$%&*+./<=>?@\\^|~-"
+startsVarSymASCII :: Char -> Bool
+startsVarSymASCII c = c `elem` "!#$%&*+./<=>?@\\^|~-"
 
 isVarSymChar :: Char -> Bool
 isVarSymChar c = c == ':' || startsVarSym c
