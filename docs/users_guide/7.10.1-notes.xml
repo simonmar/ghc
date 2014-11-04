@@ -120,6 +120,10 @@
                </para>
 
                <para>
+                 Pattern splices now work.
+               </para>
+
+               <para>
                  <literal>reifyInstances</literal> now treats unbound type
                  variables as univerally quantified, allowing lookup of, say,
                  the instance for <literal>Eq [a]</literal>.
@@ -137,6 +141,13 @@
                <para>
                  Various features unsupported in quotations were previously
                  silently ignored. These now cause errors.
+               </para>
+
+               <para>
+                 Template Haskell is now more pedantic about splicing in
+                 bogus variable names, like those containing whitespace. If you
+                 use bogus names in your Template Haskell code, this may break
+                 your program.
                </para>
            </listitem>
        </itemizedlist>
