@@ -57,10 +57,6 @@ infixr 8  **
 
 \begin{code}
 -- | Trigonometric and hyperbolic functions and related functions.
---
--- Minimal complete definition:
---      'pi', 'exp', 'log', 'sin', 'cos', 'sinh', 'cosh',
---      'asin', 'acos', 'atan', 'asinh', 'acosh' and 'atanh'
 class  (Fractional a) => Floating a  where
     pi                  :: a
     exp, log, sqrt      :: a -> a
@@ -83,9 +79,6 @@ class  (Fractional a) => Floating a  where
 
 -- | Efficient, machine-independent access to the components of a
 -- floating-point number.
---
--- Minimal complete definition:
---      all except 'exponent', 'significand', 'scaleFloat' and 'atan2'
 class  (RealFrac a, Floating a) => RealFloat a  where
     -- | a constant function, returning the radix of the representation
     -- (often @2@)
@@ -742,7 +735,7 @@ floatToDigits base x =
             k1 = (lx * 8651) `quot` 28738
         in if lx >= 0 then k1 + 1 else k1
      else
-	-- f :: Integer, log :: Float -> Float,
+        -- f :: Integer, log :: Float -> Float,
         --               ceiling :: Float -> Int
         ceiling ((log (fromInteger (f+1) :: Float) +
                  fromIntegral e * log (fromInteger b)) /
@@ -1133,8 +1126,8 @@ word2Float (W# w) = F# (word2Float# w)
 "realToFrac/Float->Double"  realToFrac   = float2Double
 "realToFrac/Double->Float"  realToFrac   = double2Float
 "realToFrac/Double->Double" realToFrac   = id :: Double -> Double
-"realToFrac/Int->Double"    realToFrac   = int2Double	-- See Note [realToFrac int-to-float]
-"realToFrac/Int->Float"     realToFrac   = int2Float	-- 	..ditto
+"realToFrac/Int->Double"    realToFrac   = int2Double   -- See Note [realToFrac int-to-float]
+"realToFrac/Int->Float"     realToFrac   = int2Float    --      ..ditto
     #-}
 \end{code}
 

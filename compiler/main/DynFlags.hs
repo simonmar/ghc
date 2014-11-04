@@ -50,8 +50,7 @@ module DynFlags (
         fFlags, fWarningFlags, fLangFlags, xFlags,
         dynFlagDependencies,
         tablesNextToCode, mkTablesNextToCode,
-
-        printOutputForUser, printInfoForUser,
+        SigOf(..), getSigOf,
 
         Way(..), mkBuildTag, wayRTSOnly, addWay', updateWays,
         wayGeneralFlags, wayUnsetGeneralFlags,
@@ -592,6 +591,17 @@ data ExtensionFlag
    | Opt_PatternSynonyms
    deriving (Eq, Enum, Show)
 
+data SigOf = NotSigOf
+           | SigOf Module
+           | SigOfMap (Map ModuleName Module)
+
+getSigOf :: DynFlags -> ModuleName -> Maybe Module
+getSigOf dflags n =
+    case sigOf dflags of
+        NotSigOf -> Nothing
+        SigOf m -> Just m
+        SigOfMap m -> Map.lookup n m
+
 -- | Contains not only a collection of 'GeneralFlag's but also a plethora of
 -- information relating to the compilation of a single file or GHC session
 data DynFlags = DynFlags {
@@ -599,6 +609,8 @@ data DynFlags = DynFlags {
   ghcLink               :: GhcLink,
   hscTarget             :: HscTarget,
   settings              :: Settings,
+  -- See Note [Signature parameters in TcGblEnv and DynFlags]
+  sigOf                 :: SigOf,       -- ^ Compiling an hs-boot against impl.
   verbosity             :: Int,         -- ^ Verbosity level: see Note [Verbosity levels]
   optLevel              :: Int,         -- ^ Optimisation level
   simplPhases           :: Int,         -- ^ Number of simplifier phases
@@ -1335,6 +1347,7 @@ defaultDynFlags mySettings =
         ghcMode                 = CompManager,
         ghcLink                 = LinkBinary,
         hscTarget               = defaultHscTarget (sTargetPlatform mySettings),
+        sigOf                   = NotSigOf,
         verbosity               = 0,
         optLevel                = 0,
         simplPhases             = 2,
@@ -1542,16 +1555,6 @@ newtype FlushErr = FlushErr (IO ())
 
 defaultFlushErr :: FlushErr
 defaultFlushErr = FlushErr $ hFlush stderr
-
-printOutputForUser :: DynFlags -> PrintUnqualified -> SDoc -> IO ()
-printOutputForUser = printSevForUser SevOutput
-
-printInfoForUser :: DynFlags -> PrintUnqualified -> SDoc -> IO ()
-printInfoForUser = printSevForUser SevInfo
-
-printSevForUser :: Severity -> DynFlags -> PrintUnqualified -> SDoc -> IO ()
-printSevForUser sev dflags unqual doc
-    = log_action dflags dflags sev noSrcSpan (mkUserStyle unqual AllTheWay) doc
 
 {-
 Note [Verbosity levels]
@@ -1832,6 +1835,29 @@ setOutputFile f d = d{ outputFile = f}
 setDynOutputFile f d = d{ dynOutputFile = f}
 setOutputHi   f d = d{ outputHi   = f}
 
+parseSigOf :: String -> SigOf
+parseSigOf str = case filter ((=="").snd) (readP_to_S parse str) of
+    [(r, "")] -> r
+    _ -> throwGhcException $ CmdLineError ("Can't parse -sig-of: " ++ str)
+  where parse = parseOne +++ parseMany
+        parseOne = SigOf `fmap` parseModule
+        parseMany = SigOfMap . Map.fromList <$> sepBy parseEntry (R.char ',')
+        parseEntry = do
+            n <- tok $ parseModuleName
+            -- ToDo: deprecate this 'is' syntax?
+            tok $ ((string "is" >> return ()) +++ (R.char '=' >> return ()))
+            m <- tok $ parseModule
+            return (mkModuleName n, m)
+        parseModule = do
+            pk <- munch1 (\c -> isAlphaNum c || c `elem` "-_")
+            _ <- R.char ':'
+            m <- parseModuleName
+            return (mkModule (stringToPackageKey pk) (mkModuleName m))
+        tok m = skipSpaces >> m
+
+setSigOf :: String -> DynFlags -> DynFlags
+setSigOf s d = d { sigOf = parseSigOf s }
+
 addPluginModuleName :: String -> DynFlags -> DynFlags
 addPluginModuleName name d = d { pluginModNames = (mkModuleName name) : (pluginModNames d) }
 
@@ -1859,25 +1885,17 @@ addOptP   f = alterSettings (\s -> s { sOpt_P   = f : sOpt_P s})
 
 
 setDepMakefile :: FilePath -> DynFlags -> DynFlags
-setDepMakefile f d = d { depMakefile = deOptDep f }
+setDepMakefile f d = d { depMakefile = f }
 
 setDepIncludePkgDeps :: Bool -> DynFlags -> DynFlags
 setDepIncludePkgDeps b d = d { depIncludePkgDeps = b }
 
 addDepExcludeMod :: String -> DynFlags -> DynFlags
 addDepExcludeMod m d
-    = d { depExcludeMods = mkModuleName (deOptDep m) : depExcludeMods d }
+    = d { depExcludeMods = mkModuleName m : depExcludeMods d }
 
 addDepSuffix :: FilePath -> DynFlags -> DynFlags
-addDepSuffix s d = d { depSuffixes = deOptDep s : depSuffixes d }
-
--- XXX Legacy code:
--- We used to use "-optdep-flag -optdeparg", so for legacy applications
--- we need to strip the "-optdep" off of the arg
-deOptDep :: String -> String
-deOptDep x = case stripPrefix "-optdep" x of
-             Just rest -> rest
-             Nothing -> x
+addDepSuffix s d = d { depSuffixes = s : depSuffixes d }
 
 addCmdlineFramework f d = d{ cmdlineFrameworks = f : cmdlineFrameworks d}
 
@@ -1987,20 +2005,8 @@ parseDynamicFlagsFull :: MonadIO m
                   -> [Located String]              -- ^ arguments to parse
                   -> m (DynFlags, [Located String], [Located String])
 parseDynamicFlagsFull activeFlags cmdline dflags0 args = do
-  -- XXX Legacy support code
-  -- We used to accept things like
-  --     optdep-f  -optdepdepend
-  --     optdep-f  -optdep depend
-  --     optdep -f -optdepdepend
-  --     optdep -f -optdep depend
-  -- but the spaces trip up proper argument handling. So get rid of them.
-  let f (L p "-optdep" : L _ x : xs) = (L p ("-optdep" ++ x)) : f xs
-      f (x : xs) = x : f xs
-      f xs = xs
-      args' = f args
-
   let ((leftover, errs, warns), dflags1)
-          = runCmdLine (processArgs activeFlags args') dflags0
+          = runCmdLine (processArgs activeFlags args) dflags0
   when (not (null errs)) $ liftIO $
       throwGhcExceptionIO $ errorsToGhcException errs
 
@@ -2153,6 +2159,7 @@ dynamic_flags = [
   , Flag "v"        (OptIntSuffix setVerbosity)
 
   , Flag "j"        (OptIntSuffix (\n -> upd (\d -> d {parMakeCount = n})))
+  , Flag "sig-of"   (sepArg setSigOf)
 
     -- RTS options -------------------------------------------------------------
   , Flag "H"           (HasArg (\s -> upd (\d ->
@@ -3075,7 +3082,8 @@ standardWarnings
         Opt_WarnInlineRuleShadowing,
         Opt_WarnAlternativeLayoutRuleTransitional,
         Opt_WarnUnsupportedLlvmVersion,
-        Opt_WarnContextQuantification
+        Opt_WarnContextQuantification,
+        Opt_WarnTabs
       ]
 
 minusWOpts :: [WarningFlag]
@@ -3367,6 +3375,9 @@ removeGlobalPkgConf = upd $ \s -> s { extraPkgConfs = filter isNotGlobal . extra
 clearPkgConf :: DynP ()
 clearPkgConf = upd $ \s -> s { extraPkgConfs = const [] }
 
+parseModuleName :: ReadP String
+parseModuleName = munch1 (\c -> isAlphaNum c || c `elem` ".")
+
 parsePackageFlag :: (String -> PackageArg) -- type of argument
                  -> String                 -- string to parse
                  -> PackageFlag
@@ -3381,11 +3392,10 @@ parsePackageFlag constr str = case filter ((=="").snd) (readP_to_S parse str) of
                 return (ExposePackage (constr pkg) (Just rns))
               +++
              return (ExposePackage (constr pkg) Nothing))
-        parseMod = munch1 (\c -> isAlphaNum c || c `elem` ".")
         parseItem = do
-            orig <- tok $ parseMod
+            orig <- tok $ parseModuleName
             (do _ <- tok $ string "as"
-                new <- tok $ parseMod
+                new <- tok $ parseModuleName
                 return (orig, new)
               +++
              return (orig, orig))

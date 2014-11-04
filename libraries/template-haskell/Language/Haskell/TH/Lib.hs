@@ -413,6 +413,9 @@ pragAnnD target expr
       exp1 <- expr
       return $ PragmaD $ AnnP target exp1
 
+pragLineD :: Int -> String -> DecQ
+pragLineD line file = return $ PragmaD $ LineP line file
+
 familyNoKindD :: FamFlavour -> Name -> [TyVarBndr] -> DecQ
 familyNoKindD flav tc tvs = return $ FamilyD flav tc tvs Nothing
 
@@ -654,6 +657,17 @@ ruleVar = return . RuleVar
 
 typedRuleVar :: Name -> TypeQ -> RuleBndrQ
 typedRuleVar n ty = ty >>= return . TypedRuleVar n
+
+-------------------------------------------------------------------------------
+-- *   AnnTarget
+valueAnnotation :: Name -> AnnTarget
+valueAnnotation = ValueAnnotation
+
+typeAnnotation :: Name -> AnnTarget
+typeAnnotation = TypeAnnotation
+
+moduleAnnotation :: AnnTarget
+moduleAnnotation = ModuleAnnotation
 
 --------------------------------------------------------------
 -- * Useful helper function

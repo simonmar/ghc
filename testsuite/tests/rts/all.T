@@ -142,6 +142,8 @@ def checkDynAsm(actual_file, normaliser):
     elif actual == ['ctors1', 'ctors2', 'initArray1', 'initArray2', 'success']:
         if_verbose(1, 'T5435_dyn_asm detected old-style dlopen, see #8458')
         return 1
+    elif opsys('mingw32') and actual == ['ctors1', 'ctors2', 'success']:
+        return 1
     else:
         if_verbose(1, 'T5435_dyn_asm failed with %s, see all.T for details' % actual)
         return 0
@@ -244,3 +246,20 @@ test('rdynamic', [ unless(opsys('linux') or opsys('mingw32'), skip)
 test('overflow1', [ exit_code(251) ], compile_and_run, [''])
 test('overflow2', [ exit_code(251) ], compile_and_run, [''])
 test('overflow3', [ exit_code(251) ], compile_and_run, [''])
+
+test('linker_error1',
+     [ extra_clean(['linker_error1.o','linker_error1']), ignore_output ],
+     run_command,
+     ['$MAKE -s --no-print-directory linker_error1'])
+
+test('linker_error2',
+     [ extra_clean(['linker_error2.o','linker_error2_c.o', 'linker_error2']),
+       ignore_output ],
+     run_command,
+     ['$MAKE -s --no-print-directory linker_error2'])
+
+test('linker_error3',
+     [ extra_clean(['linker_error3.o','linker_error3_c.o', 'linker_error3']),
+       ignore_output ],
+     run_command,
+     ['$MAKE -s --no-print-directory linker_error3'])

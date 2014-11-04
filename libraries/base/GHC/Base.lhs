@@ -231,8 +231,6 @@ data  Maybe a  =  Nothing | Just a
 -- The method names refer to the monoid of lists under concatenation,
 -- but there are many other instances.
 --
--- Minimal complete definition: 'mempty' and 'mappend'.
---
 -- Some types can be viewed as a monoid in more than one way,
 -- e.g. both addition and multiplication on numbers.
 -- In such cases we often define @newtype@s and make those instances
@@ -416,14 +414,18 @@ liftA2 f a b = (fmap f a) <*> b
 liftA3 :: Applicative f => (a -> b -> c -> d) -> f a -> f b -> f c -> f d
 liftA3 f a b c = (fmap f a) <*> b <*> c
 
+-- | The 'join' function is the conventional monad join operator. It
+-- is used to remove one level of monadic structure, projecting its
+-- bound argument into the outer level.
+join              :: (Monad m) => m (m a) -> m a
+join x            =  x >>= id
+
 {- | The 'Monad' class defines the basic operations over a /monad/,
 a concept from a branch of mathematics known as /category theory/.
 From the perspective of a Haskell programmer, however, it is best to
 think of a monad as an /abstract datatype/ of actions.
 Haskell's @do@ expressions provide a convenient syntax for writing
 monadic expressions.
-
-Minimal complete definition: '>>=' and 'return'.
 
 Instances of 'Monad' should satisfy the following laws:
 
@@ -438,13 +440,6 @@ Instances of both 'Monad' and 'Functor' should additionally satisfy the law:
 The instances of 'Monad' for lists, 'Data.Maybe.Maybe' and 'System.IO.IO'
 defined in the "Prelude" satisfy these laws.
 -}
-
--- | The 'join' function is the conventional monad join operator. It
--- is used to remove one level of monadic structure, projecting its
--- bound argument into the outer level.
-join              :: (Monad m) => m (m a) -> m a
-join x            =  x >>= id
-
 class Applicative m => Monad m where
     -- | Sequentially compose two actions, passing any value produced
     -- by the first as an argument to the second.
@@ -617,8 +612,6 @@ instance  Monad Maybe  where
 infixl 3 <|>
 
 -- | A monoid on applicative functors.
---
--- Minimal complete definition: 'empty' and '<|>'.
 --
 -- If defined, 'some' and 'many' should be the least solutions
 -- of the equations:

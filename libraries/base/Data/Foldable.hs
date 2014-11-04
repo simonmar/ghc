@@ -49,7 +49,7 @@ module Data.Foldable (
 import Data.Bool
 import Data.Either
 import Data.Eq
-import qualified Data.OldList as List
+import qualified GHC.List as List
 import Data.Maybe
 import Data.Monoid
 import Data.Ord
@@ -62,8 +62,6 @@ import GHC.Num  ( Num(..) )
 infix  4 `elem`, `notElem`
 
 -- | Data structures that can be folded.
---
--- Minimal complete definition: 'foldMap' or 'foldr'.
 --
 -- For example, given a data type
 --
@@ -130,8 +128,9 @@ class Foldable t where
     foldr1 f xs = fromMaybe (error "foldr1: empty structure")
                     (foldr mf Nothing xs)
       where
-        mf x Nothing = Just x
-        mf x (Just y) = Just (f x y)
+        mf x m = Just (case m of
+                         Nothing -> x
+                         Just y  -> f x y)
 
     -- | A variant of 'foldl' that has no base case,
     -- and thus may only be applied to non-empty structures.
@@ -141,8 +140,9 @@ class Foldable t where
     foldl1 f xs = fromMaybe (error "foldl1: empty structure")
                     (foldl mf Nothing xs)
       where
-        mf Nothing y = Just y
-        mf (Just x) y = Just (f x y)
+        mf m y = Just (case m of
+                         Nothing -> y
+                         Just x  -> f x y)
 
     -- | List of elements of a structure.
     toList :: Foldable t => t a -> [a]

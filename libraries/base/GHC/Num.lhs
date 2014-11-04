@@ -36,9 +36,9 @@ default ()              -- Double isn't available yet,
 
 \begin{code}
 -- | Basic numeric class.
---
--- Minimal complete definition: all except 'negate' or @(-)@
 class  Num a  where
+    {-# MINIMAL (+), (*), abs, signum, fromInteger, (negate | (-)) #-}
+
     (+), (-), (*)       :: a -> a -> a
     -- | Unary negation.
     negate              :: a -> a
@@ -62,7 +62,6 @@ class  Num a  where
     {-# INLINE negate #-}
     x - y               = x + negate y
     negate x            = 0 - x
-    {-# MINIMAL (+), (*), abs, signum, fromInteger, (negate | (-)) #-}
 
 -- | the same as @'flip' ('-')@.
 --
@@ -93,7 +92,7 @@ instance  Num Int  where
              | n `eqInt` 0 = 0
              | otherwise   = 1
 
-    {-# INLINE fromInteger #-}	 -- Just to be sure!
+    {-# INLINE fromInteger #-}   -- Just to be sure!
     fromInteger i = I# (integerToInt i)
 \end{code}
 

@@ -71,8 +71,6 @@ type ShowS = String -> String
 
 -- | Conversion of values to readable 'String's.
 --
--- Minimal complete definition: 'showsPrec' or 'show'.
---
 -- Derived instances of 'Show' have the following properties, which
 -- are compatible with derived instances of 'Text.Read.Read':
 --
@@ -121,6 +119,8 @@ type ShowS = String -> String
 --   @\"Leaf 1 :^: (Leaf 2 :^: Leaf 3)\"@.
 
 class  Show a  where
+    {-# MINIMAL showsPrec | show #-}
+
     -- | Convert a value to a readable 'String'.
     --
     -- 'showsPrec' should satisfy the law
@@ -155,7 +155,6 @@ class  Show a  where
     showsPrec _ x s = show x ++ s
     show x          = shows x ""
     showList ls   s = showList__ shows ls s
-    {-# MINIMAL showsPrec | show #-}
 
 showList__ :: (a -> ShowS) ->  [a] -> ShowS
 showList__ _     []     s = "[]" ++ s
@@ -386,6 +385,7 @@ showMultiLineString str
   where
     go ch s = case break (== '\n') s of
                 (l, _:s'@(_:_)) -> (ch : showLitString l "\\n\\") : go '\\' s'
+                (l, "\n")       -> [ch : showLitString l "\\n\""]
                 (l, _)          -> [ch : showLitString l "\""]
 
 isDec :: Char -> Bool
