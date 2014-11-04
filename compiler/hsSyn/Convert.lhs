@@ -6,7 +6,6 @@
 This module converts Template Haskell syntax into HsSyn
 
 \begin{code}
-{-# LANGUAGE MagicHash #-}
 {-# LANGUAGE CPP #-}
 
 module Convert( convertToHsExpr, convertToPat, convertToHsDecls,
@@ -44,7 +43,6 @@ import Control.Applicative (Applicative(..))
 import Data.Maybe( catMaybes )
 import Language.Haskell.TH as TH hiding (sigP)
 import Language.Haskell.TH.Syntax as TH
-import GHC.Exts
 import Data.Char
 import qualified Data.Set as Set
 
@@ -1321,8 +1319,8 @@ mk_mod mod = mkModuleName (TH.modString mod)
 mk_pkg :: TH.PkgName -> PackageKey
 mk_pkg pkg = stringToPackageKey (TH.pkgString pkg)
 
-mk_uniq :: Int# -> Unique
-mk_uniq u = mkUniqueGrimily (I# u)
+mk_uniq :: Int -> Unique
+mk_uniq u = mkUniqueGrimily u
 \end{code}
 
 Note [Binders in Template Haskell]
