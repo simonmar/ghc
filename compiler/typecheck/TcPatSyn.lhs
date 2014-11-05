@@ -49,9 +49,9 @@ tcInferPatSynDecl :: PatSynBind Name Name
                   -> TcM (PatSyn, LHsBinds Id)
 tcInferPatSynDecl PSB{ psb_id = lname@(L _ name), psb_args = details,
                        psb_def = lpat, psb_dir = dir }
-  = do { traceTc "tcPatSynDecl {" $ ppr name
+  = do { tcCheckPatSynPat lpat
+       ; traceTc "tcPatSynDecl {" $ ppr name
        ; pat_ty <- newFlexiTyVarTy openTypeKind
-       ; tcCheckPatSynPat lpat
 
        ; let (arg_names, is_infix) = case details of
                  PrefixPatSyn names      -> (map unLoc names, False)
@@ -91,9 +91,9 @@ tcInferPatSynDecl PSB{ psb_id = lname@(L _ name), psb_args = details,
 
        ; traceTc "tcPatSynDecl }" $ ppr name
        ; let patSyn = mkPatSyn name is_infix
+                        (univ_tvs, req_theta)
+                        (ex_tvs, prov_theta)
                         (map varType args)
-                        univ_tvs ex_tvs
-                        prov_theta req_theta
                         pat_ty
                         matcher_id wrapper_id
        ; return (patSyn, matcher_bind) }
@@ -109,7 +109,8 @@ tcCheckPatSynDecl PSB{ psb_id = lname@(L loc name), psb_args = details,
   = setSrcSpan loc $
     do { tcCheckPatSynPat lpat
 
-       ; traceTc "tcCheckPatSynDecl" $
+       ; traceTc "tcCheckPatSynDecl {" $
+         ppr name $$
          ppr (ex_tvs, prov_theta) $$
          ppr (univ_tvs, req_theta) $$
          ppr tau
@@ -160,9 +161,9 @@ tcCheckPatSynDecl PSB{ psb_id = lname@(L loc name), psb_args = details,
 
        ; traceTc "tcPatSynDecl }" $ ppr name
        ; let patSyn = mkPatSyn name is_infix
+                        (univ_tvs, req_theta)
+                        (ex_tvs, prov_theta)
                         arg_tys
-                        univ_tvs ex_tvs
-                        prov_theta req_theta
                         pat_ty
                         matcher_id wrapper_id
        ; return (patSyn, matcher_bind) }
