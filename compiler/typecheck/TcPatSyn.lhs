@@ -49,7 +49,8 @@ tcInferPatSynDecl :: PatSynBind Name Name
                   -> TcM (PatSyn, LHsBinds Id)
 tcInferPatSynDecl PSB{ psb_id = lname@(L _ name), psb_args = details,
                        psb_def = lpat, psb_dir = dir }
-  = do { pat_ty <- newFlexiTyVarTy openTypeKind
+  = do { traceTc "tcPatSynDecl {" $ ppr name
+       ; pat_ty <- newFlexiTyVarTy openTypeKind
        ; tcCheckPatSynPat lpat
 
        ; let (arg_names, is_infix) = case details of
@@ -74,9 +75,10 @@ tcInferPatSynDecl PSB{ psb_id = lname@(L _ name), psb_args = details,
        ; req_theta  <- zonkTcThetaType req_theta
        ; pat_ty     <- zonkTcType pat_ty
        ; args       <- mapM zonkId args
+       ; let arg_w_wraps = zip args $ repeat idHsWrapper
 
        ; let theta = prov_theta ++ req_theta
-       ; (matcher_id, matcher_bind) <- tcPatSynMatcher lname lpat' args idHsWrapper
+       ; (matcher_id, matcher_bind) <- tcPatSynMatcher lname lpat' arg_w_wraps
                                          univ_tvs ex_tvs
                                          ev_binds
                                          prov_dicts req_dicts
@@ -111,7 +113,7 @@ tcCheckPatSynDecl PSB{ psb_id = lname@(L loc name), psb_args = details,
          ppr (univ_tvs, req_theta) $$
          ppr tau
 
-       -- ; prov_dicts <- newEvVars prov_theta
+       ; prov_dicts <- newEvVars prov_theta
        ; req_dicts <- newEvVars req_theta
 
        ; let skol_info = SigSkol (FunSigCtxt name) (mkFunTys arg_tys pat_ty)
@@ -130,14 +132,13 @@ tcCheckPatSynDecl PSB{ psb_id = lname@(L loc name), psb_args = details,
            ; forM (zip arg_names arg_tys') $ \(arg_name, arg_ty) ->
            do { arg <- tcLookupId arg_name
               ; coi <- unifyType (varType arg) arg_ty
-              ; return (setVarType arg arg_ty, mkWpCast coi) }}
+              ; return (setVarType arg arg_ty, coToHsWrapper coi) }}
 
        ; (ex_vars', prov_dicts') <- tcCollectEx lpat'
        ; let ex_tvs'     = varSetElems ex_vars'
              prov_theta' = map evVarPred prov_dicts'
 
-
-       ; checkConstraints skol_info ex_tvs' prov_dicts' $ do
+       ; (ev_binds', _) <- checkConstraints skol_info ex_tvs' prov_dicts' $ do
            ctLoc <- getCtLoc PatSigOrigin
            forM_ prov_theta $ \pred -> do
                let ctEv = CtWanted{ ctev_pred = pred
@@ -145,18 +146,13 @@ tcCheckPatSynDecl PSB{ psb_id = lname@(L loc name), psb_args = details,
                                   , ctev_loc = ctLoc
                                   }
                emitFlat $ mkNonCanonical ctEv
-       ; let (args', _wraps) = unzip arg_w_wraps
-             -- wrap = foldr (<.>) idHsWrapper wraps
-             wrap = idHsWrapper
-       ; ex_tvs' <- mapM zonkQuantifiedTyVar ex_tvs'
-       ; args' <- mapM zonkId args'
 
        ; (matcher_id, matcher_bind) <- tcPatSynMatcher lname lpat'
-                                         args' wrap
-                                         univ_tvs ex_tvs'
+                                         arg_w_wraps
+                                         univ_tvs ex_tvs
                                          ev_binds
-                                         prov_dicts' req_dicts
-                                         prov_theta' req_theta
+                                         prov_dicts req_dicts
+                                         prov_theta req_theta
                                          pat_ty
 
        ; wrapper_id <- if isBidirectional dir
@@ -166,7 +162,7 @@ tcCheckPatSynDecl PSB{ psb_id = lname@(L loc name), psb_args = details,
        ; traceTc "tcPatSynDecl }" $ ppr name
        ; let patSyn = mkPatSyn name is_infix
                         arg_tys
-                        univ_tvs ex_tvs'
+                        univ_tvs ex_tvs
                         prov_theta req_theta
                         pat_ty
                         matcher_id wrapper_id
@@ -180,7 +176,7 @@ tcCheckPatSynDecl PSB{ psb_id = lname@(L loc name), psb_args = details,
 \begin{code}
 tcPatSynMatcher :: Located Name
                 -> LPat Id
-                -> [Var] -> HsWrapper
+                -> [(Var, HsWrapper)]
                 -> [TcTyVar] -> [TcTyVar]
                 -> TcEvBinds
                 -> [EvVar] -> [EvVar]
@@ -188,7 +184,7 @@ tcPatSynMatcher :: Located Name
                 -> TcType
                 -> TcM (Id, LHsBinds Id)
 -- See Note [Matchers and wrappers for pattern synonyms] in PatSyn
-tcPatSynMatcher (L loc name) lpat args wrap univ_tvs ex_tvs ev_binds prov_dicts req_dicts prov_theta req_theta pat_ty
+tcPatSynMatcher (L loc name) lpat arg_w_wraps univ_tvs ex_tvs ev_binds prov_dicts req_dicts prov_theta req_theta pat_ty
   = do { res_tv <- zonkQuantifiedTyVar =<< newFlexiTyVar liftedTypeKind
        ; matcher_name <- newImplicitBinder name mkMatcherOcc
        ; let res_ty = TyVarTy res_tv
@@ -204,7 +200,7 @@ tcPatSynMatcher (L loc name) lpat args wrap univ_tvs ex_tvs ev_binds prov_dicts 
 
        ; scrutinee <- mkId "scrut" pat_ty
        ; cont <- mkId "cont" cont_ty
-       ; let cont' = mkLHsWrap wrap $ nlHsApps cont $ map nlHsVar (ex_tvs ++ prov_dicts ++ args)
+       ; let cont' = nlHsApps cont $ map nlHsVar (ex_tvs ++ prov_dicts) ++ [mkLHsWrap wrap $ nlHsVar arg | (arg, wrap) <- arg_w_wraps]
        ; fail <- mkId "fail" res_ty
        ; let fail' = nlHsVar fail
 
@@ -253,6 +249,7 @@ tcPatSynMatcher (L loc name) lpat args wrap univ_tvs ex_tvs ev_binds prov_dicts 
     mkId s ty = do
         name <- newName . mkVarOccFS . fsLit $ s
         return $ mkLocalId name ty
+    args = map fst arg_w_wraps
 
 isBidirectional :: HsPatSynDir a -> Bool
 isBidirectional Unidirectional = False
