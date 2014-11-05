@@ -30,14 +30,15 @@ import BasicTypes
 import TcSimplify
 import TcUnify
 import TcType
+import TcEvidence
+import BuildTyCl
 import VarSet
 import VarEnv
 #if __GLASGOW_HASKELL__ < 709
 import Data.Monoid
 #endif
 import Bag
-import TcEvidence
-import BuildTyCl
+import Util
 import TypeRep
 import Control.Monad (forM, forM_)
 
@@ -50,7 +51,7 @@ tcInferPatSynDecl :: PatSynBind Name Name
 tcInferPatSynDecl PSB{ psb_id = lname@(L _ name), psb_args = details,
                        psb_def = lpat, psb_dir = dir }
   = do { tcCheckPatSynPat lpat
-       ; traceTc "tcPatSynDecl {" $ ppr name
+       ; traceTc "tcInferPatSynDecl {" $ ppr name
        ; pat_ty <- newFlexiTyVarTy openTypeKind
 
        ; let (arg_names, is_infix) = case details of
@@ -61,7 +62,7 @@ tcInferPatSynDecl PSB{ psb_id = lname@(L _ name), psb_args = details,
                                     mapM tcLookupId arg_names
        ; let named_taus = (name, pat_ty):map (\arg -> (getName arg, varType arg)) args
 
-       ; (qtvs, req_dicts, _mr_bites, req_ev_binds) <- simplifyInfer True False named_taus wanted
+       ; (qtvs, req_dicts, _mr_bites, ev_binds) <- simplifyInfer True False named_taus wanted
 
        ; (ex_vars, prov_dicts) <- tcCollectEx lpat'
        ; let univ_tvs   = filter (not . (`elemVarSet` ex_vars)) qtvs
@@ -77,27 +78,14 @@ tcInferPatSynDecl PSB{ psb_id = lname@(L _ name), psb_args = details,
 
        ; pat_ty     <- zonkTcType pat_ty
        ; args       <- mapM zonkId args
-       ; let arg_w_wraps = zip args $ repeat idHsWrapper
+       ; let wrapped_args = zip args $ repeat idHsWrapper
 
-       ; (matcher_id, matcher_bind) <- tcPatSynMatcher lname lpat'
-                                         (univ_tvs, req_theta, req_ev_binds, req_dicts)
-                                         (ex_tvs, prov_theta, emptyTcEvBinds, prov_dicts)
-                                         arg_w_wraps
-                                         pat_ty
-
-       ; let theta = prov_theta ++ req_theta
-       ; wrapper_id <- if isBidirectional dir
-                       then fmap Just $ mkPatSynWrapperId lname (map varType args) univ_tvs ex_tvs theta pat_ty
-                       else return Nothing
-
-       ; traceTc "tcPatSynDecl }" $ ppr name
-       ; let patSyn = mkPatSyn name is_infix
-                        (univ_tvs, req_theta)
-                        (ex_tvs, prov_theta)
-                        (map varType args)
-                        pat_ty
-                        matcher_id wrapper_id
-       ; return (patSyn, matcher_bind) }
+       ; traceTc "tcInferPatSynDecl }" $ ppr name
+       ; tc_patsyn_finish lname dir is_infix lpat'
+                          (univ_tvs, req_theta, ev_binds, req_dicts)
+                          (ex_tvs, prov_theta, emptyTcEvBinds, prov_dicts)
+                          (zip args $ repeat idHsWrapper)
+                          pat_ty }
 
 tcCheckPatSynDecl :: PatSynBind Name Name
                   -> TcPatSynInfo
@@ -124,53 +112,76 @@ tcCheckPatSynDecl PSB{ psb_id = lname@(L loc name), psb_args = details,
                  PrefixPatSyn names      -> (map unLoc names, False)
                  InfixPatSyn name1 name2 -> (map unLoc [name1, name2], True)
 
-       ; (req_ev_binds, (lpat', arg_w_wraps)) <-
+       ; (req_ev_binds, (lpat', wrapped_args)) <-
            checkConstraints skol_info univ_tvs req_dicts $
            tcPat PatSyn lpat pat_ty $ do
            { ex_sigtvs <- mapM (\tv -> newSigTyVar (getName tv) (tyVarKind tv)) ex_tvs
            ; let subst = mkTvSubst (mkInScopeSet (zipVarEnv ex_sigtvs ex_sigtvs)) $
                          zipTyEnv ex_tvs (map mkTyVarTy ex_sigtvs)
                  arg_tys' = substTys subst arg_tys
-           ; forM (zip arg_names arg_tys') $ \(arg_name, arg_ty) ->
-           do { arg <- tcLookupId arg_name
-              ; coi <- unifyType (varType arg) arg_ty
-              ; return (setVarType arg arg_ty, coToHsWrapper coi) }}
+           ; forM (zipEqual "tcCheckPatSynDecl" arg_names arg_tys') $ \(arg_name, arg_ty) -> do
+               { arg <- tcLookupId arg_name
+               ; coi <- unifyType (varType arg) arg_ty
+               ; return (setVarType arg arg_ty, coToHsWrapper coi) }}
 
        ; (ex_vars_rhs, prov_dicts_rhs) <- tcCollectEx lpat'
        ; let ex_tvs_rhs  = varSetElems ex_vars_rhs
 
-       ; (prov_ev_binds, prov_dicts) <- checkConstraints skol_info ex_tvs_rhs prov_dicts_rhs $ do
-           ctLoc <- getCtLoc PatSigOrigin
-           forM prov_theta $ \pred -> do
-               evar <- newEvVar pred
-               let ctEv = CtWanted{ ctev_pred = pred
-                                  , ctev_evar = evar
-                                  , ctev_loc = ctLoc
-                                  }
-               emitFlat $ mkNonCanonical ctEv
-               return evar
+       ; (prov_ev_binds, prov_dicts) <-
+           checkConstraints skol_info ex_tvs_rhs prov_dicts_rhs $ do
+           { ctLoc <- getCtLoc PatSigOrigin
+           ; forM prov_theta $ \pred -> do
+               { evar <- newEvVar pred
+               ; let ctEv = CtWanted{ ctev_pred = pred
+                                    , ctev_evar = evar
+                                    , ctev_loc = ctLoc
+                                    }
+               ; emitFlat $ mkNonCanonical ctEv
+               ; return evar }}
 
-       ; (matcher_id, matcher_bind) <- tcPatSynMatcher lname lpat'
+       ; traceTc "tcCheckPatSynDecl }" $ ppr name
+       ; tc_patsyn_finish lname dir is_infix lpat'
+                          (univ_tvs, req_theta, req_ev_binds, req_dicts)
+                          (ex_tvs, prov_theta, prov_ev_binds, prov_dicts)
+                          wrapped_args
+                          pat_ty }
+  where
+    (arg_tys, pat_ty) = tcSplitFunTys tau
+
+tc_patsyn_finish :: Located Name
+                 -> HsPatSynDir Name
+                 -> Bool
+                 -> LPat Id
+                 -> ([TcTyVar], [PredType], TcEvBinds, [EvVar])
+                 -> ([TcTyVar], [PredType], TcEvBinds, [EvVar])
+                 -> [(Var, HsWrapper)]
+                 -> TcType
+                 -> TcM (PatSyn, LHsBinds Id)
+tc_patsyn_finish lname dir is_infix lpat'
+                 (univ_tvs, req_theta, req_ev_binds, req_dicts)
+                 (ex_tvs, prov_theta, prov_ev_binds, prov_dicts)
+                 wrapped_args
+                 pat_ty
+  = do { (matcher_id, matcher_bind) <- tcPatSynMatcher lname lpat'
                                          (univ_tvs, req_theta, req_ev_binds, req_dicts)
                                          (ex_tvs, prov_theta, prov_ev_binds, prov_dicts)
-                                         arg_w_wraps
+                                         wrapped_args
                                          pat_ty
 
-       ; let theta = prov_theta ++ req_theta
        ; wrapper_id <- if isBidirectional dir
-                       then fmap Just $ mkPatSynWrapperId lname arg_tys univ_tvs ex_tvs theta pat_ty
+                       then fmap Just $ mkPatSynWrapperId lname (map varType args) univ_tvs ex_tvs theta pat_ty
                        else return Nothing
 
-       ; traceTc "tcPatSynDecl }" $ ppr name
-       ; let patSyn = mkPatSyn name is_infix
+       ; let patSyn = mkPatSyn (unLoc lname) is_infix
                         (univ_tvs, req_theta)
                         (ex_tvs, prov_theta)
-                        arg_tys
+                        (map varType args)
                         pat_ty
                         matcher_id wrapper_id
        ; return (patSyn, matcher_bind) }
   where
-    (arg_tys, pat_ty) = tcSplitFunTys tau
+    theta = prov_theta ++ req_theta
+    args = map fst wrapped_args
 \end{code}
 
 
