@@ -79,12 +79,13 @@ tcInferPatSynDecl PSB{ psb_id = lname@(L _ name), psb_args = details,
        ; args       <- mapM zonkId args
        ; let arg_w_wraps = zip args $ repeat idHsWrapper
 
-       ; let theta = prov_theta ++ req_theta
        ; (matcher_id, matcher_bind) <- tcPatSynMatcher lname lpat'
                                          (univ_tvs, req_theta, req_ev_binds, req_dicts)
                                          (ex_tvs, prov_theta, emptyTcEvBinds, prov_dicts)
                                          arg_w_wraps
                                          pat_ty
+
+       ; let theta = prov_theta ++ req_theta
        ; wrapper_id <- if isBidirectional dir
                        then fmap Just $ mkPatSynWrapperId lname (map varType args) univ_tvs ex_tvs theta pat_ty
                        else return Nothing
@@ -155,6 +156,7 @@ tcCheckPatSynDecl PSB{ psb_id = lname@(L loc name), psb_args = details,
                                          arg_w_wraps
                                          pat_ty
 
+       ; let theta = prov_theta ++ req_theta
        ; wrapper_id <- if isBidirectional dir
                        then fmap Just $ mkPatSynWrapperId lname arg_tys univ_tvs ex_tvs theta pat_ty
                        else return Nothing
@@ -168,7 +170,6 @@ tcCheckPatSynDecl PSB{ psb_id = lname@(L loc name), psb_args = details,
                         matcher_id wrapper_id
        ; return (patSyn, matcher_bind) }
   where
-    theta = prov_theta ++ req_theta
     (arg_tys, pat_ty) = tcSplitFunTys tau
 \end{code}
 
