@@ -818,8 +818,9 @@ yieldCapability (Capability** pCap, Task *task, rtsBool gcAllowed)
 void
 prodCapability (Capability *cap, Task *task)
 {
+    if (cap->running_task != NULL) return;
     ACQUIRE_LOCK(&cap->lock);
-    if (!cap->running_task) {
+    if (cap->running_task == NULL) {
         cap->running_task = task;
         releaseCapability_(cap,rtsTrue);
     }
