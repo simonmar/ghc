@@ -173,7 +173,7 @@ typedef void (*init_t) (int argc, char **argv, char **env);
 static HsInt isAlreadyLoaded( pathchar *path );
 static HsInt loadOc( ObjectCode* oc );
 static ObjectCode* mkOc( pathchar *path, char *image, int imageSize,
-                         char *archiveMemberName
+                         rtsBool mapped, char *archiveMemberName
 #ifndef USE_MMAP
 #ifdef darwin_HOST_OS
                        , int misalignment
@@ -218,7 +218,7 @@ static int ocVerifyImage_ELF    ( ObjectCode* oc );
 static int ocGetNames_ELF       ( ObjectCode* oc );
 static int ocResolve_ELF        ( ObjectCode* oc );
 static int ocRunInit_ELF        ( ObjectCode* oc );
-#if defined(powerpc_HOST_ARCH) || defined(x86_64_HOST_ARCH) || defined(arm_HOST_ARCH)
+#if NEED_SYMBOL_EXTRAS
 static int ocAllocateSymbolExtras_ELF ( ObjectCode* oc );
 #endif
 #elif defined(OBJFORMAT_PEi386)
@@ -250,7 +250,7 @@ static int ocRunInit_MachO        ( ObjectCode* oc );
 #ifndef USE_MMAP
 static int machoGetMisalignment( FILE * );
 #endif
-#if defined(powerpc_HOST_ARCH) || defined(x86_64_HOST_ARCH)
+#if NEED_SYMBOL_EXTRAS
 static int ocAllocateSymbolExtras_MachO ( ObjectCode* oc );
 #endif
 #ifdef powerpc_HOST_ARCH
@@ -2207,21 +2207,36 @@ void ghci_enquire ( char* addr )
 
 #ifdef USE_MMAP
 #define ROUND_UP(x,size) ((x + size - 1) & ~(size - 1))
+#define ROUND_DOWN(x,size) (x & ~(size - 1))
+
+static StgWord pagesize = 0;
+
+static StgWord roundUpToPage (StgWord size)
+{
+    if (pagesize == 0)
+        pagesize = getpagesize();
+    return ROUND_UP(size, pagesize);
+}
+
+static StgWord roundDownToPage (StgWord size)
+{
+    if (pagesize == 0)
+        pagesize = getpagesize();
+    return ROUND_DOWN(size, pagesize);
+}
 
 //
 // Returns NULL on failure.
 //
-static void * mmapForLinker (size_t bytes, nat flags, int fd)
+static void * mmapForLinker (size_t bytes, nat flags, int fd, int offset)
 {
    void *map_addr = NULL;
    void *result;
-   int pagesize;
    StgWord size;
    static nat fixed = 0;
 
    IF_DEBUG(linker, debugBelch("mmapForLinker: start\n"));
-   pagesize = getpagesize();
-   size = ROUND_UP(bytes, pagesize);
+   size = roundUpToPage(bytes);
 
 #if !defined(ALWAYS_PIC) && defined(x86_64_HOST_ARCH)
 mmap_again:
@@ -2240,7 +2255,7 @@ mmap_again:
 
    result = mmap(map_addr, size,
                  PROT_EXEC|PROT_READ|PROT_WRITE,
-                 MAP_PRIVATE|TRY_MAP_32BIT|fixed|flags, fd, 0);
+                 MAP_PRIVATE|TRY_MAP_32BIT|fixed|flags, fd, offset);
 
    if (result == MAP_FAILED) {
        sysErrorBelch("mmap %" FMT_Word " bytes at %p",(W_)size,map_addr);
@@ -2342,56 +2357,19 @@ static void freeOcStablePtrs (ObjectCode *oc)
     oc->stable_ptrs = NULL;
 }
 
-
-/*
- * freeObjectCode() releases all the pieces of an ObjectCode.  It is called by
- * the GC when a previously unloaded ObjectCode has been determined to be
- * unused, and when an error occurs during loadObj().
- */
-void freeObjectCode (ObjectCode *oc)
+static void
+freePreloadObjectFile (ObjectCode *oc)
 {
-    if (oc->symbols != NULL) {
-        stgFree(oc->symbols);
-        oc->symbols = NULL;
-    }
-
-    {
-        Section *s, *nexts;
-
-        for (s = oc->sections; s != NULL; s = nexts) {
-            nexts = s->next;
-            stgFree(s);
-        }
-    }
-
-    freeProddableBlocks(oc);
-
 #ifdef USE_MMAP
-    int pagesize, size, r;
 
-    pagesize = getpagesize();
-    size = ROUND_UP(oc->fileSize, pagesize);
-
-    r = munmap(oc->image, size);
-    if (r == -1) {
-        sysErrorBelch("munmap");
+    if (oc->imageMapped) {
+        munmap(oc->image, oc->fileSize);
+    } else {
+        stgFree(oc->image);
     }
 
-#if defined(powerpc_HOST_ARCH) || defined(x86_64_HOST_ARCH) || defined(arm_HOST_ARCH)
-#if !defined(x86_64_HOST_ARCH) || !defined(mingw32_HOST_OS)
-    if (!USE_CONTIGUOUS_MMAP && oc->symbol_extras != NULL)
-    {
-        munmap(oc->symbol_extras,
-               ROUND_UP(sizeof(SymbolExtra) * oc->n_symbol_extras, pagesize));
-    }
-#endif
-#endif
+#elif defined(mingw32_HOST_OS)
 
-#else
-
-#ifndef mingw32_HOST_OS
-    stgFree(oc->image);
-#else
     VirtualFree(oc->image - PEi386_IMAGE_OFFSET, 0, MEM_RELEASE);
 
     IndirectAddr *ia, *ia_next;
@@ -2402,14 +2380,66 @@ void freeObjectCode (ObjectCode *oc)
       ia = ia_next;
     }
 
+#else
+
+    stgFree(oc->image);
+
 #endif
 
-#if defined(powerpc_HOST_ARCH) || defined(x86_64_HOST_ARCH) || defined(arm_HOST_ARCH)
-#if !defined(x86_64_HOST_ARCH) || !defined(mingw32_HOST_OS)
+    oc->image = NULL;
+    oc->fileSize = 0;
+}
+
+/*
+ * freeObjectCode() releases all the pieces of an ObjectCode.  It is called by
+ * the GC when a previously unloaded ObjectCode has been determined to be
+ * unused, and when an error occurs during loadObj().
+ */
+void freeObjectCode (ObjectCode *oc)
+{
+    freePreloadObjectFile(oc);
+
+    if (oc->symbols != NULL) {
+        stgFree(oc->symbols);
+        oc->symbols = NULL;
+    }
+
+    if (oc->sections != NULL) {
+        int i;
+        for (i=0; i < oc->n_sections; i++) {
+            if (oc->sections[i].start != NULL) {
+                switch(oc->sections[i].alloc){
+#ifdef USE_MMAP
+                case SECTION_MMAP:
+                    munmap(oc->sections[i].mapped_start,
+                           oc->sections[i].mapped_size);
+                    break;
+#endif
+                case SECTION_MALLOC:
+                    stgFree(oc->sections[i].start);
+                    break;
+                default:
+                    break;
+                }
+            }
+        }
+        stgFree(oc->sections);
+    }
+
+    freeProddableBlocks(oc);
+
+    /* Free symbol_extras.  On x86_64 Windows, symbol_extras are allocated
+     * alongside the image, so we don't need to free. */
+#if NEED_SYMBOL_EXTRAS && (!defined(x86_64_HOST_ARCH) || !defined(mingw32_HOST_OS))
+#ifdef USE_MMAP
+    if (!USE_CONTIGUOUS_MMAP && oc->symbol_extras != NULL)
+    {
+        munmap(oc->symbol_extras,
+               roundUpToPage(sizeof(SymbolExtra) * oc->n_symbol_extras));
+    }
+#else // !USE_MMAP
     stgFree(oc->symbol_extras);
 #endif
-#endif
-
 #endif
 
     stgFree(oc->fileName);
@@ -2420,7 +2450,7 @@ void freeObjectCode (ObjectCode *oc)
 
 static ObjectCode*
 mkOc( pathchar *path, char *image, int imageSize,
-      char *archiveMemberName
+      rtsBool mapped, char *archiveMemberName
 #ifndef USE_MMAP
 #ifdef darwin_HOST_OS
     , int misalignment
@@ -2456,12 +2486,14 @@ mkOc( pathchar *path, char *image, int imageSize,
 
    oc->fileSize          = imageSize;
    oc->symbols           = NULL;
+   oc->n_sections        = 0;
    oc->sections          = NULL;
    oc->proddables        = NULL;
    oc->stable_ptrs       = NULL;
-#if powerpc_HOST_ARCH || x86_64_HOST_ARCH || arm_HOST_ARCH
+#if NEED_SYMBOL_EXTRAS
    oc->symbol_extras     = NULL;
 #endif
+   oc->imageMapped       = mapped;
 
 #ifndef USE_MMAP
 #ifdef darwin_HOST_OS
@@ -2800,16 +2832,7 @@ static HsInt loadArchive_ (pathchar *path)
 
             IF_DEBUG(linker, debugBelch("loadArchive: Member is an object file...loading...\n"));
 
-            /* We can't mmap from the archive directly, as object
-               files need to be 8-byte aligned but files in .ar
-               archives are 2-byte aligned. When possible we use mmap
-               to get some anonymous memory, as on 64-bit platforms if
-               we use malloc then we can be given memory above 2^32.
-               In the mmap case we're probably wasting lots of space;
-               we could do better. */
-#if defined(USE_MMAP)
-            image = mmapForLinker(memberSize, MAP_ANONYMOUS, -1);
-#elif defined(mingw32_HOST_OS)
+#if defined(mingw32_HOST_OS)
         // TODO: We would like to use allocateExec here, but allocateExec
         //       cannot currently allocate blocks large enough.
             image = allocateImageAndTrampolines(path, fileName,
@@ -2879,11 +2902,9 @@ static HsInt loadArchive_ (pathchar *path)
             sprintf(archiveMemberName, "%" PATH_FMT "(%.*s)",
                     path, (int)thisFileNameSize, fileName);
 
-            oc = mkOc(path, image, memberSize, archiveMemberName
-#ifndef USE_MMAP
-#ifdef darwin_HOST_OS
+            oc = mkOc(path, image, memberSize, rtsFalse, archiveMemberName
+#if !defined(USE_MMAP) && defined(darwin_HOST_OS)
                      , misalignment
-#endif
 #endif
                      );
 
@@ -2904,7 +2925,7 @@ static HsInt loadArchive_ (pathchar *path)
             }
             IF_DEBUG(linker, debugBelch("loadArchive: Found GNU-variant file index\n"));
 #ifdef USE_MMAP
-            gnuFileIndex = mmapForLinker(memberSize + 1, MAP_ANONYMOUS, -1);
+            gnuFileIndex = mmapForLinker(memberSize + 1, MAP_ANONYMOUS, -1, 0);
 #else
             gnuFileIndex = stgMallocBytes(memberSize + 1, "loadArchive(image)");
 #endif
@@ -2966,6 +2987,118 @@ HsInt loadArchive (pathchar *path)
    return r;
 }
 
+//
+// Load the object file into memory.  This will not be its final resting place,
+// as on 64-bit platforms we need to map its segments into the low 2Gb of the
+// address space, properly aligned.
+//
+static ObjectCode *
+preloadObjectFile (pathchar *path)
+{
+   int fileSize;
+   struct_stat st;
+   int r;
+   void *image;
+   ObjectCode *oc;
+#if !defined(USE_MMAP) && defined(darwin_HOST_OS)
+   int misalignment;
+#endif
+
+   r = pathstat(path, &st);
+   if (r == -1) {
+       errorBelch("loadObj: %" PATH_FMT ": file doesn't exist", path);
+       return NULL;
+   }
+
+   fileSize = st.st_size;
+
+#ifdef USE_MMAP
+   int fd;
+
+   /* On many architectures malloc'd memory isn't executable, so we need to use
+    * mmap. */
+
+#if defined(openbsd_HOST_OS)
+   fd = open(path, O_RDONLY, S_IRUSR);
+#else
+   fd = open(path, O_RDONLY);
+#endif
+   if (fd == -1) {
+      errorBelch("loadObj: can't open %s", path);
+      return NULL;
+   }
+
+   image = mmap(NULL, fileSize, PROT_READ|PROT_WRITE|PROT_EXEC,
+                MAP_PRIVATE, fd, 0);
+       // not 32-bit yet, we'll remap later
+   close(fd);
+
+#else /* !USE_MMAP */
+   FILE *f;
+
+   /* load the image into memory */
+   /* coverity[toctou] */
+   f = pathopen(path, WSTR("rb"));
+   if (!f) {
+       errorBelch("loadObj: can't read `%" PATH_FMT "'", path);
+       return NULL;
+   }
+
+#  if defined(mingw32_HOST_OS)
+
+        // TODO: We would like to use allocateExec here, but allocateExec
+        //       cannot currently allocate blocks large enough.
+    image = allocateImageAndTrampolines(path, "itself",
+#if defined(x86_64_HOST_ARCH)
+       f,
+#endif
+       fileSize);
+    if (image == NULL) {
+        fclose(f);
+        return NULL;
+    }
+
+#   elif defined(darwin_HOST_OS)
+
+    // In a Mach-O .o file, all sections can and will be misaligned
+    // if the total size of the headers is not a multiple of the
+    // desired alignment. This is fine for .o files that only serve
+    // as input for the static linker, but it's not fine for us,
+    // as SSE (used by gcc for floating point) and Altivec require
+    // 16-byte alignment.
+    // We calculate the correct alignment from the header before
+    // reading the file, and then we misalign image on purpose so
+    // that the actual sections end up aligned again.
+   misalignment = machoGetMisalignment(f);
+   image = stgMallocBytes(fileSize + misalignment, "loadObj(image)");
+   image += misalignment;
+
+# else /* !defined(mingw32_HOST_OS) */
+
+   image = stgMallocBytes(fileSize, "loadObj(image)");
+
+#endif
+
+   int n;
+   n = fread ( image, 1, fileSize, f );
+   fclose(f);
+   if (n != fileSize) {
+       errorBelch("loadObj: error whilst reading `%" PATH_FMT "'", path);
+       stgFree(image);
+       return NULL;
+   }
+
+#endif /* USE_MMAP */
+
+   oc = mkOc(path, image, fileSize, rtsTrue, NULL
+#if !defined(USE_MMAP) && defined(darwin_HOST_OS)
+            , misalignment
+#endif
+            );
+
+   return oc;
+}
+
 /* -----------------------------------------------------------------------------
  * Load an obj (populate the global symbol table, but don't resolve yet)
  *
@@ -2974,18 +3107,6 @@ HsInt loadArchive (pathchar *path)
 static HsInt loadObj_ (pathchar *path)
 {
    ObjectCode* oc;
-   char *image;
-   int fileSize;
-   struct_stat st;
-   int r;
-#ifdef USE_MMAP
-   int fd;
-#else
-   FILE *f;
-#  if defined(darwin_HOST_OS)
-   int misalignment;
-#  endif
-#endif
    IF_DEBUG(linker, debugBelch("loadObj %" PATH_FMT "\n", path));
 
    /* debugBelch("loadObj %s\n", path ); */
@@ -2999,92 +3120,8 @@ static HsInt loadObj_ (pathchar *path)
        return 1; /* success */
    }
 
-   r = pathstat(path, &st);
-   if (r == -1) {
-       IF_DEBUG(linker, debugBelch("File doesn't exist\n"));
-       return 0;
-   }
-
-   fileSize = st.st_size;
-
-#ifdef USE_MMAP
-   /* On many architectures malloc'd memory isn't executable, so we need to use mmap. */
-
-#if defined(openbsd_HOST_OS)
-   /* coverity[toctou] */
-   fd = open(path, O_RDONLY, S_IRUSR);
-#else
-   /* coverity[toctou] */
-   fd = open(path, O_RDONLY);
-#endif
-   if (fd == -1) {
-      errorBelch("loadObj: can't open `%s'", path);
-      return 0;
-   }
-
-   image = mmapForLinker(fileSize, 0, fd);
-   close(fd);
-   if (image == NULL) {
-       return 0;
-   }
-
-#else /* !USE_MMAP */
-   /* load the image into memory */
-   /* coverity[toctou] */
-   f = pathopen(path, WSTR("rb"));
-   if (!f) {
-       errorBelch("loadObj: can't read `%" PATH_FMT "'", path);
-       return 0;
-   }
-
-#   if defined(mingw32_HOST_OS)
-        // TODO: We would like to use allocateExec here, but allocateExec
-        //       cannot currently allocate blocks large enough.
-    image = allocateImageAndTrampolines(path, "itself",
-#if defined(x86_64_HOST_ARCH)
-       f,
-#endif
-       fileSize);
-    if (image == NULL) {
-        fclose(f);
-        return 0;
-    }
-#   elif defined(darwin_HOST_OS)
-    // In a Mach-O .o file, all sections can and will be misaligned
-    // if the total size of the headers is not a multiple of the
-    // desired alignment. This is fine for .o files that only serve
-    // as input for the static linker, but it's not fine for us,
-    // as SSE (used by gcc for floating point) and Altivec require
-    // 16-byte alignment.
-    // We calculate the correct alignment from the header before
-    // reading the file, and then we misalign image on purpose so
-    // that the actual sections end up aligned again.
-   misalignment = machoGetMisalignment(f);
-   image = stgMallocBytes(fileSize + misalignment, "loadObj(image)");
-   image += misalignment;
-#  else
-   image = stgMallocBytes(fileSize, "loadObj(image)");
-#  endif
-
-   {
-       int n;
-       n = fread ( image, 1, fileSize, f );
-       fclose(f);
-       if (n != fileSize) {
-           errorBelch("loadObj: error whilst reading `%" PATH_FMT "'", path);
-           stgFree(image);
-           return 0;
-       }
-   }
-#endif /* USE_MMAP */
-
-   oc = mkOc(path, image, fileSize, NULL
-#ifndef USE_MMAP
-#ifdef darwin_HOST_OS
-            , misalignment
-#endif
-#endif
-            );
+   oc = preloadObjectFile(path);
+   if (oc == NULL) return 0;
 
    if (! loadOc(oc)) {
        // failed; free everything we've allocated
@@ -3107,8 +3144,8 @@ HsInt loadObj (pathchar *path)
    return r;
 }
 
-static HsInt
-loadOc( ObjectCode* oc ) {
+static HsInt loadOc (ObjectCode* oc)
+{
    int r;
 
    IF_DEBUG(linker, debugBelch("loadOc: start\n"));
@@ -3128,20 +3165,22 @@ loadOc( ObjectCode* oc ) {
        return r;
    }
 
-#  if defined(OBJFORMAT_MACHO) && (defined(powerpc_HOST_ARCH) || defined(x86_64_HOST_ARCH))
+#if NEED_SYMBOL_EXTRAS
+#  if defined(OBJFORMAT_MACHO)
    r = ocAllocateSymbolExtras_MachO ( oc );
    if (!r) {
        IF_DEBUG(linker, debugBelch("loadOc: ocAllocateSymbolExtras_MachO failed\n"));
        return r;
    }
-#  elif defined(OBJFORMAT_ELF) && (defined(powerpc_HOST_ARCH) || defined(x86_64_HOST_ARCH) || defined(arm_HOST_ARCH))
+#  elif defined(OBJFORMAT_ELF)
    r = ocAllocateSymbolExtras_ELF ( oc );
    if (!r) {
        IF_DEBUG(linker, debugBelch("loadOc: ocAllocateSymbolExtras_ELF failed\n"));
        return r;
    }
-#  elif defined(OBJFORMAT_PEi386) && defined(x86_64_HOST_ARCH)
+#  elif defined(OBJFORMAT_PEi386)
    ocAllocateSymbolExtras_PEi386 ( oc );
+#  endif
 #endif
 
    /* build the symbol list for this image */
@@ -3344,18 +3383,23 @@ static void freeProddableBlocks (ObjectCode *oc)
  * Section management.
  */
 static void
-addSection ( ObjectCode* oc, SectionKind kind,
-                         void* start, void* end )
+addSection (Section *s, SectionKind kind, SectionAlloc alloc,
+            void* start, StgWord size, StgWord mapped_offset,
+            void* mapped_start, StgWord mapped_size)
 {
-   Section* s   = stgMallocBytes(sizeof(Section), "addSection");
-   s->start     = start;
-   s->end       = end;
-   s->kind      = kind;
-   s->next      = oc->sections;
-   oc->sections = s;
+   s->start        = start;     /* actual start of section in memory */
+   s->size         = size;      /* actual size of section in memory */
+   s->kind         = kind;
+   s->alloc        = alloc;
+   s->mapped_offset = mapped_offset; /* offset from the image of mapped_start */
 
-   IF_DEBUG(linker, debugBelch("addSection: %p-%p (size %lld), kind %d\n",
-                               start, ((char*)end)-1, ((long long)(size_t)end) - ((long long)(size_t)start) + 1, kind ));
+   s->mapped_start = mapped_start; /* start of mmap() block */
+   s->mapped_size  = mapped_size;  /* size of mmap() block */
+
+   IF_DEBUG(linker,
+            debugBelch("addSection: %p-%p (size %" FMT_Word "), kind %d\n",
+                       start, (void*)((StgWord)start + size),
+                       size, kind ));
 }
 
 
@@ -3367,7 +3411,7 @@ addSection ( ObjectCode* oc, SectionKind kind,
  * them right next to the object code itself.
  */
 
-#if defined(powerpc_HOST_ARCH) || defined(x86_64_HOST_ARCH) || defined(arm_HOST_ARCH)
+#if NEED_SYMBOL_EXTRAS
 #if !defined(x86_64_HOST_ARCH) || !defined(mingw32_HOST_OS)
 
 /*
@@ -3391,63 +3435,49 @@ addSection ( ObjectCode* oc, SectionKind kind,
 
 static int ocAllocateSymbolExtras( ObjectCode* oc, int count, int first )
 {
-#ifdef USE_MMAP
-  int pagesize, n, m;
-#endif
-  int aligned;
+  StgWord n;
 #ifndef USE_MMAP
   int misalignment = 0;
 #ifdef darwin_HOST_OS
-  misalignment = oc->misalignment;
+  int aligned;
 #endif
 #endif
 
   if( count > 0 )
   {
-    // round up to the nearest 4
-    aligned = (oc->fileSize + 3) & ~3;
-
 #ifdef USE_MMAP
-    pagesize = getpagesize();
-    n = ROUND_UP( oc->fileSize, pagesize );
-    m = ROUND_UP( aligned + sizeof (SymbolExtra) * count, pagesize );
+    n = roundUpToPage(oc->fileSize);
 
-    /* we try to use spare space at the end of the last page of the
-     * image for the jump islands, but if there isn't enough space
-     * then we have to map some (anonymously, remembering MAP_32BIT).
-     */
-    if( m > n ) // we need to allocate more pages
+    if (USE_CONTIGUOUS_MMAP)
     {
-        if (USE_CONTIGUOUS_MMAP)
+        /* Keep image and symbol_extras contiguous */
+        void *new = mmapForLinker(n + (sizeof(SymbolExtra) * count),
+                                  MAP_ANONYMOUS, -1, 0);
+        if (new)
         {
-            /* Keep image and symbol_extras contiguous */
-            void *new = mmapForLinker(n + (sizeof(SymbolExtra) * count),
-                                  MAP_ANONYMOUS, -1);
-            if (new)
-            {
-                memcpy(new, oc->image, oc->fileSize);
-                munmap(oc->image, n);
-                oc->image = new;
-                oc->fileSize = n + (sizeof(SymbolExtra) * count);
-                oc->symbol_extras = (SymbolExtra *) (oc->image + n);
-            }
-            else {
-                oc->symbol_extras = NULL;
-                return 0;
-            }
+            memcpy(new, oc->image, oc->fileSize);
+            munmap(oc->image, n);
+            oc->image = new;
+            oc->fileSize = n + (sizeof(SymbolExtra) * count);
+            oc->symbol_extras = (SymbolExtra *) (oc->image + n);
         }
-        else
-        {
-            oc->symbol_extras = mmapForLinker(sizeof(SymbolExtra) * count,
-                                          MAP_ANONYMOUS, -1);
-            if (oc->symbol_extras == NULL) return 0;
+        else {
+            oc->symbol_extras = NULL;
+            return 0;
         }
     }
     else
     {
-        oc->symbol_extras = (SymbolExtra *) (oc->image + aligned);
+        oc->symbol_extras = mmapForLinker(sizeof(SymbolExtra) * count,
+                                          MAP_ANONYMOUS, -1, 0);
+        if (oc->symbol_extras == NULL) return 0;
     }
 #else
+    // round up to the nearest 4
+    aligned = (oc->fileSize + 3) & ~3;
+
+    misalignment = oc->misalignment;
+
     oc->image -= misalignment;
     oc->image = stgReallocBytes( oc->image,
                                  misalignment +
@@ -3456,12 +3486,14 @@ static int ocAllocateSymbolExtras( ObjectCode* oc, int count, int first )
     oc->image += misalignment;
 
     oc->symbol_extras = (SymbolExtra *) (oc->image + aligned);
+
 #endif /* USE_MMAP */
 
-    memset( oc->symbol_extras, 0, sizeof (SymbolExtra) * count );
   }
-  else
-    oc->symbol_extras = NULL;
+
+  if (oc->symbol_extras != NULL) {
+      memset( oc->symbol_extras, 0, sizeof (SymbolExtra) * count );
+  }
 
   oc->first_symbol_extra = first;
   oc->n_symbol_extras = count;
@@ -3470,7 +3502,7 @@ static int ocAllocateSymbolExtras( ObjectCode* oc, int count, int first )
 }
 
 #endif
-#endif // defined(powerpc_HOST_ARCH) || defined(x86_64_HOST_ARCH) || defined(arm_HOST_ARCH)
+#endif // NEED_SYMBOL_EXTRAS
 
 #if defined(arm_HOST_ARCH)
 
@@ -4342,6 +4374,14 @@ ocGetNames_PEi386 ( ObjectCode* oc )
       /* debugBelch("BSS anon section at 0x%x\n", zspace); */
    }
 
+   Section *sections;
+   sections = (Section*)stgCallocBytes(
+       sizeof(Section),
+       hdr->NumberOfSections + 1, /* +1 for the global BSS section see below */
+       "ocGetNames_ELF(sections)");
+   oc->sections = sections;
+   oc->n_sections = hdr->NumberOfSections + 1;
+
    /* Copy section information into the ObjectCode. */
 
    for (i = 0; i < hdr->NumberOfSections; i++) {
@@ -4413,6 +4453,8 @@ ocGetNames_PEi386 ( ObjectCode* oc )
           IF_DEBUG(linker, debugBelch("Unknown PEi386 section name `%s' (while processing: %" PATH_FMT")", secname, oc->fileName));
       }
 
+      addSection(&sections[i], kind, SECTION_NOMEM, start, sz, 0, 0, 0);
+
       if (kind != SECTIONKIND_OTHER && end >= start) {
           if ((((size_t)(start)) % 4) != 0) {
               errorBelch("Misaligned section %s: %p", (char*)secname, start);
@@ -4420,8 +4462,7 @@ ocGetNames_PEi386 ( ObjectCode* oc )
               return 0;
           }
 
-         addSection(oc, kind, start, end);
-         addProddableBlock(oc, start, end - start + 1);
+          addProddableBlock(oc, start, end - start + 1);
       }
 
       stgFree(secname);
@@ -4430,16 +4471,39 @@ ocGetNames_PEi386 ( ObjectCode* oc )
    /* Copy exported symbols into the ObjectCode. */
 
    oc->n_symbols = hdr->NumberOfSymbols;
-   oc->symbols   = stgMallocBytes(oc->n_symbols * sizeof(char*),
+   oc->symbols   = stgCallocBytes(sizeof(char*), oc->n_symbols,
                                   "ocGetNames_PEi386(oc->symbols)");
-   /* Call me paranoid; I don't care. */
-   for (i = 0; i < oc->n_symbols; i++)
-      oc->symbols[i] = NULL;
 
-   i = 0;
-   while (1) {
+   /* Work out the size of the global BSS section */
+   StgWord globalBssSize = 0;
+   for (i=0; i < (int)hdr->NumberOfSymbols; i++) {
       COFF_symbol* symtab_i;
-      if (i >= (Int32)(hdr->NumberOfSymbols)) break;
+       symtab_i = (COFF_symbol*)
+           myindex ( sizeof_COFF_symbol, symtab, i );
+       if (symtab_i->SectionNumber == MYIMAGE_SYM_UNDEFINED
+           && symtab_i->Value > 0) {
+           globalBssSize += symtab_i->Value;
+       }
+       i += symtab_i->NumberOfAuxSymbols;
+   }
+
+   /* Allocate BSS space */
+   void *bss = NULL;
+   if (globalBssSize > 0) {
+       bss = stgCallocBytes(1, globalBssSize,
+                            "ocGetNames_PEi386(non-anonymous bss)");
+       addSection(&sections[oc->n_sections-1],
+                  SECTIONKIND_RWDATA, SECTION_MALLOC,
+                  bss, globalBssSize, 0, 0, 0);
+       debugBelch("bss @ %p %" FMT_Word "\n", bss, globalBssSize);
+       addProddableBlock(oc, bss, globalBssSize);
+   } else {
+       addSection(&sections[oc->n_sections-1],
+                  SECTIONKIND_OTHER, SECTION_NOMEM, NULL, 0, 0, 0, 0);
+   }
+
+   for (i = 0; i < (int)hdr->NumberOfSymbols; i++) {
+      COFF_symbol* symtab_i;
       symtab_i = (COFF_symbol*)
                  myindex ( sizeof_COFF_symbol, symtab, i );
 
@@ -4465,13 +4529,10 @@ ocGetNames_PEi386 ( ObjectCode* oc )
       if (symtab_i->SectionNumber == MYIMAGE_SYM_UNDEFINED
           && symtab_i->Value > 0) {
          /* This symbol isn't in any section at all, ie, global bss.
-            Allocate zeroed space for it. */
-         addr = stgCallocBytes(1, symtab_i->Value,
-                               "ocGetNames_PEi386(non-anonymous bss)");
-         addSection(oc, SECTIONKIND_RWDATA, addr,
-                        ((UChar*)addr) + symtab_i->Value - 1);
-         addProddableBlock(oc, addr, symtab_i->Value);
-         /* debugBelch("BSS      section at 0x%x\n", addr); */
+            Allocate zeroed space for it from the BSS section */
+          addr = bss;
+          bss = (void *)((StgWord)bss + (StgWord)symtab_i->Value);
+          debugBelch("bss symbol @ %p %u\n", addr, symtab_i->Value);
       }
 
       if (addr != NULL ) {
@@ -4510,7 +4571,6 @@ ocGetNames_PEi386 ( ObjectCode* oc )
       }
 
       i += symtab_i->NumberOfAuxSymbols;
-      i++;
    }
 
    return 1;
@@ -5053,7 +5113,6 @@ PLTSize(void)
 }
 #endif
 
-
 /*
  * Generic ELF functions
  */
@@ -5283,6 +5342,9 @@ ocVerifyImage_ELF ( ObjectCode* oc )
    return 1;
 }
 
+/* Figure out what kind of section it is.  Logic derived from
+   Figure 1.14 ("Special Sections") of the ELF document
+   ("Portable Formats Specification, Version 1.1"). */
 static int getSectionKind_ELF( Elf_Shdr *hdr, int *is_bss )
 {
     *is_bss = FALSE;
@@ -5321,34 +5383,103 @@ static int getSectionKind_ELF( Elf_Shdr *hdr, int *is_bss )
     return SECTIONKIND_OTHER;
 }
 
+/*
+ * Check to see whether we've already mmapped() the memory for this section
+ * with another section.  For very small object files we can get multiple
+ * sections in the same page, so this avoids making multiple mappings.
+ */
+static void *
+maybeShareSection (Section *sections, int secno, Elf_Word offset, Elf_Word size)
+{
+    int i;
+    for (i = 0; i < secno; i++) {
+        StgWord start = sections[i].mapped_offset;
+        StgWord end = start + sections[i].mapped_size;
+        if (start <= offset && end >= offset + size) {
+            return (void*)((StgWord)sections[i].mapped_start +
+                           (offset - sections[i].mapped_offset));
+        }
+    }
+    return NULL;
+}
+
+static void *
+mapObjectFileSection (int fd, ObjectCode *oc, Elf_Word offset, Elf_Word size,
+                      void **mapped_start, StgWord *mapped_size,
+                      StgWord *mapped_offset)
+{
+    void *p;
+    StgWord pageOffset, pageSize;
+
+    if (oc->imageMapped) {
+        pageOffset = roundDownToPage(offset);
+        pageSize = roundUpToPage(offset-pageOffset+size);
+        p = mmapForLinker(pageSize, 0, fd, pageOffset);
+        if (p == NULL) return NULL;
+        *mapped_size = pageSize;
+        *mapped_offset = pageOffset;
+        *mapped_start = p;
+        return (void*)((StgWord)p + offset - pageOffset);
+    } else {
+        pageSize = roundUpToPage(size);
+        p = mmapForLinker(pageSize, MAP_ANONYMOUS, -1, 0);
+        if (p == NULL) return NULL;
+        *mapped_size = stg_min(pageSize, oc->fileSize - offset);
+        *mapped_offset = offset;
+        *mapped_start = p;
+        // copy the full rounded-up pageSize, we might be able to share this
+        // mapping with another section.
+        memcpy(p, oc->image + offset, *mapped_size);
+        return p;
+    }
+}
 
 static int
 ocGetNames_ELF ( ObjectCode* oc )
 {
-   int i, j, nent;
+   int i, j, nent, result, fd = -1;
    Elf_Sym* stab;
 
    char*     ehdrC    = (char*)(oc->image);
    Elf_Ehdr* ehdr     = (Elf_Ehdr*)ehdrC;
    char*     strtab;
    Elf_Shdr* shdr     = (Elf_Shdr*) (ehdrC + ehdr->e_shoff);
+   Section * sections;
 
    ASSERT(symhash != NULL);
 
+   sections = (Section*)stgCallocBytes(sizeof(Section), ehdr->e_shnum,
+                                       "ocGetNames_ELF(sections)");
+   oc->sections = sections;
+   oc->n_sections = ehdr->e_shnum;
+
+
+   if (oc->imageMapped) {
+#if defined(openbsd_HOST_OS)
+       fd = open(oc->fileName, O_RDONLY, S_IRUSR);
+#else
+       fd = open(oc->fileName, O_RDONLY);
+#endif
+       if (fd == -1) {
+           errorBelch("loadObj: can't open %" PATH_FMT, oc->fileName);
+           return 0;
+       }
+   }
+
    for (i = 0; i < ehdr->e_shnum; i++) {
-      /* Figure out what kind of section it is.  Logic derived from
-         Figure 1.14 ("Special Sections") of the ELF document
-         ("Portable Formats Specification, Version 1.1"). */
       int         is_bss = FALSE;
       SectionKind kind   = getSectionKind_ELF(&shdr[i], &is_bss);
+      SectionAlloc alloc = SECTION_NOMEM;
+      void *start = NULL, *mapped_start = NULL;
+      StgWord mapped_size = 0, mapped_offset = 0;
 
       if (is_bss && shdr[i].sh_size > 0) {
          /* This is a non-empty .bss section.  Allocate zeroed space for
             it, and set its .sh_offset field such that
             ehdrC + .sh_offset == addr_of_zeroed_space.  */
-         char* zspace = stgCallocBytes(1, shdr[i].sh_size,
-                                       "ocGetNames_ELF(BSS)");
-         shdr[i].sh_offset = ((char*)zspace) - ((char*)ehdrC);
+          alloc = SECTION_MALLOC;
+          start = stgCallocBytes(1, shdr[i].sh_size, "ocGetNames_ELF(BSS)");
+          mapped_start = start;
          /*
          debugBelch("BSS section at 0x%x, size %d\n",
                          zspace, shdr[i].sh_size);
@@ -5356,11 +5487,22 @@ ocGetNames_ELF ( ObjectCode* oc )
       }
 
       /* fill in the section info */
-      if (kind != SECTIONKIND_OTHER && shdr[i].sh_size > 0) {
-         addProddableBlock(oc, ehdrC + shdr[i].sh_offset, shdr[i].sh_size);
-         addSection(oc, kind, ehdrC + shdr[i].sh_offset,
-                        ehdrC + shdr[i].sh_offset + shdr[i].sh_size - 1);
+      else if (kind != SECTIONKIND_OTHER && shdr[i].sh_size > 0) {
+          start = maybeShareSection(sections, i,
+                                    shdr[i].sh_offset, shdr[i].sh_size);
+          if (!start) {
+              alloc = SECTION_MMAP;
+              start = mapObjectFileSection(fd, oc,
+                                           shdr[i].sh_offset, shdr[i].sh_size,
+                                           &mapped_start, &mapped_size,
+                                           &mapped_offset);
+              if (start == NULL) goto fail;
+          }
+          addProddableBlock(oc, ehdrC + shdr[i].sh_offset, shdr[i].sh_size);
       }
+
+      addSection(&sections[i], kind, alloc, start, shdr[i].sh_size,
+                 mapped_offset, mapped_start, mapped_size);
 
       if (shdr[i].sh_type != SHT_SYMTAB) continue;
 
@@ -5424,7 +5566,8 @@ ocGetNames_ELF ( ObjectCode* oc )
                                stab[j].st_size, stab[j].st_value, nm);
             }
             */
-            ad = ehdrC + shdr[ secno ].sh_offset + stab[j].st_value;
+            ad = (void*)((intptr_t)sections[secno].start +
+                         (intptr_t)stab[j].st_value);
             if (ELF_ST_BIND(stab[j].st_info)==STB_LOCAL) {
                isLocal = TRUE;
                isWeak = FALSE;
@@ -5453,7 +5596,7 @@ ocGetNames_ELF ( ObjectCode* oc )
             } else {
                 if (! ghciInsertSymbolTable(oc->fileName, symhash,
                                             nm, ad, isWeak, oc)) {
-                    return 0;
+                    goto fail;
                 }
                 oc->symbols[j] = nm;
             }
@@ -5476,7 +5619,16 @@ ocGetNames_ELF ( ObjectCode* oc )
       }
    }
 
-   return 1;
+   result = 1;
+   goto end;
+
+fail:
+   result = 0;
+   goto end;
+
+end:
+   if (fd >= 0) close(fd);
+   return result;
 }
 
 /* Do ELF relocations which lack an explicit addend.  All x86-linux
@@ -5498,18 +5650,14 @@ do_Elf_Rel_relocations ( ObjectCode* oc, char* ehdrC,
 
    stab  = (Elf_Sym*) (ehdrC + shdr[ symtab_shndx ].sh_offset);
    strtab= (char*)    (ehdrC + shdr[ strtab_shndx ].sh_offset);
-   targ  = (Elf_Word*)(ehdrC + shdr[ target_shndx ].sh_offset);
+   targ  = (Elf_Word*)oc->sections[target_shndx].start;
    IF_DEBUG(linker,debugBelch( "relocations for section %d using symtab %d and strtab %d\n",
                           target_shndx, symtab_shndx, strtab_shndx ));
 
    /* Skip sections that we're not interested in. */
-   {
-       int is_bss;
-       SectionKind kind = getSectionKind_ELF(&shdr[target_shndx], &is_bss);
-       if (kind == SECTIONKIND_OTHER) {
+   if (oc->sections[target_shndx].kind == SECTIONKIND_OTHER) {
            IF_DEBUG(linker,debugBelch( "skipping (target section not loaded)"));
            return 1;
-       }
    }
 
    for (j = 0; j < nent; j++) {
@@ -5542,9 +5690,8 @@ do_Elf_Rel_relocations ( ObjectCode* oc, char* ehdrC,
             /* Yes, so we can get the address directly from the ELF symbol
                table. */
             symbol = sym.st_name==0 ? "(noname)" : strtab+sym.st_name;
-            S = (Elf_Addr)
-                (ehdrC + shdr[ sym.st_shndx ].sh_offset
-                       + stab[ELF_R_SYM(info)].st_value);
+            S = (Elf_Addr)oc->sections[sym.st_shndx].start +
+                stab[ELF_R_SYM(info)].st_value;
 
          } else {
             symbol = strtab + sym.st_name;
@@ -5808,10 +5955,16 @@ do_Elf_Rela_relocations ( ObjectCode* oc, char* ehdrC,
    strtab= (char*)    (ehdrC + shdr[ strtab_shndx ].sh_offset);
 #if defined(DEBUG) || defined(sparc_HOST_ARCH) || defined(ia64_HOST_ARCH) || defined(powerpc_HOST_ARCH) || defined(x86_64_HOST_ARCH)
    /* This #ifdef only serves to avoid set-but-not-used warnings */
-   targ  = (Elf_Addr) (ehdrC + shdr[ target_shndx ].sh_offset);
+   targ  = (Elf_Addr) oc->sections[target_shndx].start;
 #endif
    IF_DEBUG(linker,debugBelch( "relocations for section %d using symtab %d\n",
                           target_shndx, symtab_shndx ));
+
+   /* Skip sections that we're not interested in. */
+   if (oc->sections[target_shndx].kind == SECTIONKIND_OTHER) {
+           IF_DEBUG(linker,debugBelch( "skipping (target section not loaded)"));
+           return 1;
+   }
 
    for (j = 0; j < nent; j++) {
 #if defined(DEBUG) || defined(sparc_HOST_ARCH) || defined(ia64_HOST_ARCH) || defined(powerpc_HOST_ARCH) || defined(x86_64_HOST_ARCH)
@@ -5846,9 +5999,8 @@ do_Elf_Rela_relocations ( ObjectCode* oc, char* ehdrC,
             /* Yes, so we can get the address directly from the ELF symbol
                table. */
             symbol = sym.st_name==0 ? "(noname)" : strtab+sym.st_name;
-            S = (Elf_Addr)
-                (ehdrC + shdr[ sym.st_shndx ].sh_offset
-                       + stab[ELF_R_SYM(info)].st_value);
+            S = (Elf_Addr)oc->sections[sym.st_shndx].start
+                + stab[ELF_R_SYM(info)].st_value;
 #ifdef ELF_FUNCTION_DESC
             /* Make a function descriptor for this function */
             if (S && ELF_ST_TYPE(sym.st_info) == STT_FUNC) {
@@ -6168,12 +6320,12 @@ static int ocRunInit_ELF( ObjectCode *oc )
       SectionKind kind = getSectionKind_ELF(&shdr[i], &is_bss);
       if (kind == SECTIONKIND_CODE_OR_RODATA
        && 0 == memcmp(".init", sh_strtab + shdr[i].sh_name, 5)) {
-         init_t init_f = (init_t)(ehdrC + shdr[i].sh_offset);
-         init_f(argc, argv, envv);
+          init_t init_f = (init_t)(oc->sections[i].start);
+          init_f(argc, argv, envv);
       }
 
       if (kind == SECTIONKIND_INIT_ARRAY) {
-         char *init_startC = ehdrC + shdr[i].sh_offset;
+          char *init_startC = oc->sections[i].start;
          init_start = (init_t*)init_startC;
          init_end = (init_t*)(init_startC + shdr[i].sh_size);
          for (init = init_start; init < init_end; init++) {
@@ -6185,7 +6337,7 @@ static int ocRunInit_ELF( ObjectCode *oc )
       // SECTIONKIND_RWDATA; but allowing RODATA seems harmless enough.
       if ((kind == SECTIONKIND_RWDATA || kind == SECTIONKIND_CODE_OR_RODATA)
        && 0 == memcmp(".ctors", sh_strtab + shdr[i].sh_name, 6)) {
-         char *init_startC = ehdrC + shdr[i].sh_offset;
+          char *init_startC = oc->sections[i].start;
          init_start = (init_t*)init_startC;
          init_end = (init_t*)(init_startC + shdr[i].sh_size);
          // ctors run in reverse
@@ -6203,7 +6355,7 @@ static int ocRunInit_ELF( ObjectCode *oc )
  * PowerPC & X86_64 ELF specifics
  */
 
-#if defined(powerpc_HOST_ARCH) || defined(x86_64_HOST_ARCH) || defined(arm_HOST_ARCH)
+#if NEED_SYMBOL_EXTRAS
 
 static int ocAllocateSymbolExtras_ELF( ObjectCode *oc )
 {
@@ -6239,7 +6391,7 @@ static int ocAllocateSymbolExtras_ELF( ObjectCode *oc )
   return ocAllocateSymbolExtras( oc, shdr[i].sh_size / sizeof( Elf_Sym ), 0 );
 }
 
-#endif /* powerpc */
+#endif /* NEED_SYMBOL_EXTRAS */
 
 #endif /* ELF */
 
@@ -6266,7 +6418,7 @@ static int ocAllocateSymbolExtras_ELF( ObjectCode *oc )
 #define nlist nlist_64
 #endif
 
-#ifdef powerpc_HOST_ARCH
+#if NEED_SYMBOL_EXTRAS
 static int
 ocAllocateSymbolExtras_MachO(ObjectCode* oc)
 {
