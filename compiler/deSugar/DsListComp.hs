@@ -251,6 +251,11 @@ deListComp (ParStmt stmtss_w_bndrs _ _ : quals) list
 
 deListComp (RecStmt {} : _) _ = panic "deListComp RecStmt"
 
+deListComp (ApplicativeBindStmt {} : _) _ =
+  panic "deListComp ApplicativeBindStmt"
+deListComp (ApplicativeLastStmt {} : _) _ =
+  panic "deListComp ApplicativeLastStmt"
+
 deBindComp :: OutPat Id
            -> CoreExpr
            -> [ExprStmt Id]
@@ -342,6 +347,10 @@ dfListComp c_id n_id (BindStmt pat list1 _ _ : quals) = do
 
 dfListComp _ _ (ParStmt {} : _) = panic "dfListComp ParStmt"
 dfListComp _ _ (RecStmt {} : _) = panic "dfListComp RecStmt"
+dfListComp _ _ (ApplicativeBindStmt {} : _) =
+  panic "dfListComp ApplicativeBindStmt"
+dfListComp _ _ (ApplicativeLastStmt {} : _) =
+  panic "dfListComp ApplicativeLastStmt"
 
 dfBindComp :: Id -> Id          -- 'c' and 'n'
            -> (LPat Id, CoreExpr)
@@ -589,6 +598,10 @@ dePArrComp (ParStmt {} : _) _ _ =
   panic "DsListComp.dePArrComp: malformed comprehension AST: ParStmt"
 dePArrComp (TransStmt {} : _) _ _ = panic "DsListComp.dePArrComp: TransStmt"
 dePArrComp (RecStmt   {} : _) _ _ = panic "DsListComp.dePArrComp: RecStmt"
+dePArrComp (ApplicativeBindStmt   {} : _) _ _ =
+  panic "DsListComp.dePArrComp: ApplicativeBindStmt"
+dePArrComp (ApplicativeLastStmt   {} : _) _ _ =
+  panic "DsListComp.dePArrComp: ApplicativeLastStmt"
 
 --  <<[:e' | qs | qss:]>> pa ea =
 --    <<[:e' | qss:]>> (pa, (x_1, ..., x_n))

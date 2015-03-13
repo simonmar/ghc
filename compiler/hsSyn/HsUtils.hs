@@ -669,6 +669,9 @@ collectStmtBinders (ParStmt xs _ _)     = collectLStmtsBinders
                                         $ [s | ParStmtBlock ss _ _ <- xs, s <- ss]
 collectStmtBinders (TransStmt { trS_stmts = stmts }) = collectLStmtsBinders stmts
 collectStmtBinders (RecStmt { recS_stmts = ss })     = collectLStmtsBinders ss
+collectStmtBinders (ApplicativeBindStmt pairs _ _) =
+  collectLStmtsBinders (map fst pairs)
+collectStmtBinders ApplicativeLastStmt{} = []
 
 
 ----------------- Patterns --------------------------
@@ -876,6 +879,8 @@ lStmtsImplicits = hs_lstmts
     hs_lstmts = foldr (\stmt rest -> unionNameSet (hs_stmt (unLoc stmt)) rest) emptyNameSet
 
     hs_stmt (BindStmt pat _ _ _) = lPatImplicits pat
+    hs_stmt (ApplicativeBindStmt pairs _ _) = hs_lstmts (map fst pairs)
+    hs_stmt (ApplicativeLastStmt _ pairs _ _) = hs_lstmts (map fst pairs)
     hs_stmt (LetStmt binds)      = hs_local_binds binds
     hs_stmt (BodyStmt {})        = emptyNameSet
     hs_stmt (LastStmt {})        = emptyNameSet

@@ -10,7 +10,7 @@ general, all of these functions return a renamed thing, and a set of
 free variables.
 -}
 
-{-# LANGUAGE CPP, ScopedTypeVariables #-}
+{-# LANGUAGE CPP, ScopedTypeVariables, RecordWildCards #-}
 
 module RnExpr (
         rnLExpr, rnExpr, rnStmts
@@ -28,9 +28,9 @@ import RnSplice         ( rnBracket, rnSpliceExpr, checkThLocalName )
 import RnTypes
 import RnPat
 import DynFlags
-import BasicTypes       ( FixityDirection(..) )
 import PrelNames
 
+import BasicTypes
 import Name
 import NameSet
 import RdrName
@@ -200,12 +200,15 @@ rnExpr (HsCase expr matches)
        ; return (HsCase new_expr new_matches, e_fvs `plusFV` ms_fvs) }
 
 rnExpr (HsLet binds expr)
-  = rnLocalBindsAndThen binds $ \binds' -> do
+  = rnLocalBindsAndThen binds $ \binds' _ -> do
       { (expr',fvExpr) <- rnLExpr expr
       ; return (HsLet binds' expr', fvExpr) }
 
 rnExpr (HsDo do_or_lc stmts _)
-  = do  { ((stmts', _), fvs) <- rnStmts do_or_lc rnLExpr stmts (\ _ -> return ((), emptyFVs))
+  = do  { ((stmts', _), fvs) <-
+           rnStmtsWithPostProcessing do_or_lc rnLExpr
+             postProcessStmtsForApplicativeDo stmts
+             (\ _ -> return ((), emptyFVs))
         ; return ( HsDo do_or_lc stmts' placeHolderType, fvs ) }
 
 rnExpr (ExplicitList _ _  exps)
@@ -500,12 +503,13 @@ rnCmd (HsCmdIf _ p b1 b2)
        ; return (HsCmdIf mb_ite p' b1' b2', plusFVs [fvITE, fvP, fvB1, fvB2]) }
 
 rnCmd (HsCmdLet binds cmd)
-  = rnLocalBindsAndThen binds $ \ binds' -> do
+  = rnLocalBindsAndThen binds $ \ binds' _ -> do
       { (cmd',fvExpr) <- rnLCmd cmd
       ; return (HsCmdLet binds' cmd', fvExpr) }
 
 rnCmd (HsCmdDo stmts _)
-  = do  { ((stmts', _), fvs) <- rnStmts ArrowExpr rnLCmd stmts (\ _ -> return ((), emptyFVs))
+  = do  { ((stmts', _), fvs) <-
+            rnStmts ArrowExpr rnLCmd stmts (\ _ -> return ((), emptyFVs))
         ; return ( HsCmdDo stmts' placeHolderType, fvs ) }
 
 rnCmd cmd@(HsCmdCast {}) = pprPanic "rnCmd" (ppr cmd)
@@ -574,12 +578,17 @@ methodNamesStmt :: StmtLR Name Name (LHsCmd Name) -> FreeVars
 methodNamesStmt (LastStmt cmd _)                 = methodNamesLCmd cmd
 methodNamesStmt (BodyStmt cmd _ _ _)             = methodNamesLCmd cmd
 methodNamesStmt (BindStmt _ cmd _ _)             = methodNamesLCmd cmd
-methodNamesStmt (RecStmt { recS_stmts = stmts }) = methodNamesStmts stmts `addOneFV` loopAName
+methodNamesStmt (ApplicativeBindStmt pairs _ _)  =
+  methodNamesStmts (map fst pairs)
+methodNamesStmt (ApplicativeLastStmt _ pairs _ _)  =
+  methodNamesStmts (map fst pairs)
+methodNamesStmt (RecStmt { recS_stmts = stmts }) =
+  methodNamesStmts stmts `addOneFV` loopAName
 methodNamesStmt (LetStmt {})                     = emptyFVs
 methodNamesStmt (ParStmt {})                     = emptyFVs
 methodNamesStmt (TransStmt {})                   = emptyFVs
-   -- ParStmt and TransStmt can't occur in commands, but it's not convenient to error
-   -- here so we just do what's convenient
+   -- ParStmt and TransStmt can't occur in commands, but it's not
+   -- convenient to error here so we just do what's convenient
 
 {-
 ************************************************************************
@@ -619,20 +628,86 @@ rnArithSeq (FromThenTo expr1 expr2 expr3)
 ************************************************************************
 -}
 
-rnStmts :: Outputable (body RdrName) => HsStmtContext Name
+-- | Rename some Stmts
+rnStmts :: Outputable (body RdrName)
+        => HsStmtContext Name
+        -> (Located (body RdrName) -> RnM (Located (body Name), FreeVars))
+           -- ^ How to rename the body of each statement (e.g. rnLExpr)
+        -> [LStmt RdrName (Located (body RdrName))]
+           -- ^ Statements
+        -> ([Name] -> RnM (thing, FreeVars))
+           -- ^ if these statements scope over something, this renames it
+           -- and returns the result.
+        -> RnM (([LStmt Name (Located (body Name))], thing), FreeVars)
+rnStmts ctxt rnBody = rnStmtsWithPostProcessing ctxt rnBody noPostProcessStmts
+
+-- | like 'rnStmts' but applies a post-processing step to the renamed Stmts
+rnStmtsWithPostProcessing
+        :: Outputable (body RdrName)
+        => HsStmtContext Name
+        -> (Located (body RdrName) -> RnM (Located (body Name), FreeVars))
+           -- ^ How to rename the body of each statement (e.g. rnLExpr)
+        -> (HsStmtContext Name
+              -> [(LStmt Name (Located (body Name)), FreeVars)]
+              -> RnM ([LStmt Name (Located (body Name))], FreeVars))
+           -- ^ postprocess the statements
+        -> [LStmt RdrName (Located (body RdrName))]
+           -- ^ Statements
+        -> ([Name] -> RnM (thing, FreeVars))
+           -- ^ if these statements scope over something, this renames it
+           -- and returns the result.
+        -> RnM (([LStmt Name (Located (body Name))], thing), FreeVars)
+rnStmtsWithPostProcessing ctxt rnBody ppStmts stmts thing_inside
+ = do { ((stmts', thing), fvs) <-
+          rnStmtsWithFreeVars ctxt rnBody stmts thing_inside
+      ; (pp_stmts, fvs') <- ppStmts ctxt stmts'
+      ; return ((pp_stmts, thing), fvs `plusFV` fvs')
+      }
+
+-- | maybe rearrange statements according to the ApplicativeDo transformation
+postProcessStmtsForApplicativeDo
+  :: HsStmtContext Name
+  -> [(LStmt Name (LHsExpr Name), FreeVars)]
+  -> RnM ([LStmt Name (LHsExpr Name)], FreeVars)
+postProcessStmtsForApplicativeDo ctxt stmts
+  = do {
+       -- rearrange the statements using ApplicativeBindStmt if
+       -- -XApplicativeDo is on.  Also strip out the FreeVars attached
+       -- to each Stmt body.
+         ado_is_on <- xoptM Opt_ApplicativeDo
+       ; let is_do_expr | DoExpr <- ctxt = True
+                        | otherwise = False
+       ; if ado_is_on && is_do_expr
+            then rearrangeForApplicativeDo ctxt stmts
+            else noPostProcessStmts ctxt stmts }
+
+-- | strip the FreeVars annotations from statements
+noPostProcessStmts
+  :: HsStmtContext Name
+  -> [(LStmt Name (Located (body Name)), FreeVars)]
+  -> RnM ([LStmt Name (Located (body Name))], FreeVars)
+noPostProcessStmts _ stmts = return (map fst stmts, emptyNameSet)
+
+
+rnStmtsWithFreeVars :: Outputable (body RdrName)
+        => HsStmtContext Name
         -> (Located (body RdrName) -> RnM (Located (body Name), FreeVars))
         -> [LStmt RdrName (Located (body RdrName))]
         -> ([Name] -> RnM (thing, FreeVars))
-        -> RnM (([LStmt Name (Located (body Name))], thing), FreeVars)
+        -> RnM ( ([(LStmt Name (Located (body Name)), FreeVars)], thing)
+               , FreeVars)
+-- Each Stmt body is annotated with its FreeVars, so that
+-- we can rearrange statements for ApplicativeDo.
+--
 -- Variables bound by the Stmts, and mentioned in thing_inside,
 -- do not appear in the result FreeVars
 
-rnStmts ctxt _ [] thing_inside
+rnStmtsWithFreeVars ctxt _ [] thing_inside
   = do { checkEmptyStmts ctxt
        ; (thing, fvs) <- thing_inside []
        ; return (([], thing), fvs) }
 
-rnStmts MDoExpr rnBody stmts thing_inside    -- Deal with mdo
+rnStmtsWithFreeVars MDoExpr rnBody stmts thing_inside    -- Deal with mdo
   = -- Behave like do { rec { ...all but last... }; last }
     do { ((stmts1, (stmts2, thing)), fvs)
            <- rnStmt MDoExpr rnBody (noLoc $ mkRecStmt all_but_last) $ \ _ ->
@@ -642,7 +717,7 @@ rnStmts MDoExpr rnBody stmts thing_inside    -- Deal with mdo
   where
     Just (all_but_last, last_stmt) = snocView stmts
 
-rnStmts ctxt rnBody (lstmt@(L loc _) : lstmts) thing_inside
+rnStmtsWithFreeVars ctxt rnBody (lstmt@(L loc _) : lstmts) thing_inside
   | null lstmts
   = setSrcSpan loc $
     do { lstmt' <- checkLastStmt ctxt lstmt
@@ -653,16 +728,188 @@ rnStmts ctxt rnBody (lstmt@(L loc _) : lstmts) thing_inside
             <- setSrcSpan loc                         $
                do { checkStmt ctxt lstmt
                   ; rnStmt ctxt rnBody lstmt    $ \ bndrs1 ->
-                    rnStmts ctxt rnBody lstmts  $ \ bndrs2 ->
+                    rnStmtsWithFreeVars ctxt rnBody lstmts  $ \ bndrs2 ->
                     thing_inside (bndrs1 ++ bndrs2) }
         ; return (((stmts1 ++ stmts2), thing), fvs) }
 
+
+{- Note [ApplicativeDo]
+
+For now, we implement the simplest version of the tranformation, which
+works as follows.  For a sequence of statements
+
+  pat1 <- E1
+  ...
+  patn <- En
+
+where none of the variables bound in pat_1..pat_n are mentioned in
+E1..En, we translate this to:
+
+  (pat1, ..., patn) <- (,...,) <$> E1 <*> ... <*> En
+
+and the transformation is applied
+  (a) greedily, so we grab as many binds as we can, and
+  (b) repeatedly within a sequence of statements
+
+If the sequence of binds is followed by a return statement, like this:
+
+  pat1 <- E1
+  ...
+  patn <- En
+  return E
+
+then we transform it to
+
+  (\pat1 ... patn) -> E) <$> E1 <*> ... <*> En
+
+which has the advantage that it only depends on Applicative operators
+and not Monad, so it works for non-monadic types too.
+
+
+ToDo: figure out a good way to apply the more general transformation, which is
+
+  S1
+  S2
+
+  ==>
+
+  (tup(S1), tup(S2)) <-
+     (,)
+       <$> do { S1; return tup(S1) }
+       <*> do { S2; return tup(S2) }
+
+where
+
+  S1,S2 are sequences of statements
+  S2 does not mention any of the variables bound by S1
+
+Which does a better job with this example:
+
+ do
+  a <- e1
+  b <- e2
+  c <- f b
+  d <- e3
+  ...
+
+with the current transformation we will get
+
+ do
+  (a,b) <- (,) <$> e1 <*> e2
+  (c,d) <- (,) <$> f b <*> e3
+  ...
+
+whereas what we really want is
+
+ do
+  (a,(b,c),d) <-
+    (,,)
+      <$> e1
+      <*> (do b <- e2; c <- f b; return (b,c))
+      <*> e3
+  ...
+
+because this way we get to do all of e1,e2,e3 in parallel.
+-}
+
+-- | rearrange a list of statements using ApplicativeDoStmt.  See
+-- Note [ApplicativeDo].
+rearrangeForApplicativeDo
+  :: HsStmtContext Name
+  -> [(LStmt Name (LHsExpr Name), FreeVars)]
+  -> RnM ([LStmt Name (LHsExpr Name)], FreeVars)
+
+rearrangeForApplicativeDo _ [] = return ([], emptyNameSet)
+
+rearrangeForApplicativeDo ctxt stmts
+  | Just (lets, group, [(L _ (LastStmt body _), _)]) <- indep_stmts
+  = do { (fmap_op, fvs1) <- lookupStmtName ctxt fmapName
+       ; (ap_op, fvs2) <- lookupStmtName ctxt apAName
+       ; (mb_join, fun, fvs3) <- case checkApplicativeLast body of
+           Nothing ->
+             do { (join_op, fvs) <- lookupStmtName ctxt joinMName
+                ; return (Just join_op, body, fvs) }
+           Just ret_arg ->
+             return (Nothing, ret_arg, emptyNameSet)
+       ; let span = foldr1 combineSrcSpans (map getLoc group)
+             applicative_stmt = L span $ ApplicativeLastStmt
+               fun
+               (zip group (fmap_op : repeat ap_op))
+               mb_join
+               placeHolderType
+       ; return (lets ++ [applicative_stmt], fvs1 `plusFV` fvs2 `plusFV` fvs3) }
+
+  | Just (lets, group, rest) <- indep_stmts
+  = do { (fmap_op, fvs1) <- lookupStmtName ctxt fmapName
+       ; (ap_op, fvs2) <- lookupStmtName ctxt apAName
+       ; (bind_op, fvs3) <- lookupStmtName ctxt bindMName
+       ; (fail_op, fvs4) <- lookupStmtName ctxt failMName
+       ; let span = foldr1 combineSrcSpans (map getLoc group)
+             applicative_stmt = L span $ ApplicativeBindStmt
+               (zip group (fmap_op : repeat ap_op))
+               bind_op
+               fail_op
+       ; (rest', fvs5) <- rearrangeForApplicativeDo ctxt rest
+       ; return (lets ++ applicative_stmt : rest',
+                 fvs1 `plusFV` fvs2 `plusFV` fvs3 `plusFV` fvs4 `plusFV` fvs5)
+       }
+  where
+    indep_stmts = slurpIndependentStmts stmts
+
+rearrangeForApplicativeDo ctxt ((stmt,_) : stmts)
+  = do { (stmts', fvs) <- rearrangeForApplicativeDo ctxt stmts
+       ; return (stmt : stmts', fvs) }
+
+
+checkApplicativeLast :: LHsExpr Name -> Maybe (LHsExpr Name)
+checkApplicativeLast (L _ (HsPar expr)) = checkApplicativeLast expr
+checkApplicativeLast (L _ (HsApp f arg))
+  | isReturn f = Just arg
+  | otherwise  = Nothing
+ where
+  isReturn (L _ (HsPar e)) = isReturn e
+  isReturn (L _ (HsVar r)) = r == returnMName
+       -- TODO: I don't know how to get this right for rebindable syntax
+  isReturn _ = False
+checkApplicativeLast _ = Nothing
+
+slurpIndependentStmts
+   :: [(LStmt Name (Located (body Name)), FreeVars)]
+   -> Maybe ( [LStmt Name (Located (body Name))] -- LetStmts
+            , [LStmt Name (Located (body Name))] -- BindStmts
+            , [(LStmt Name (Located (body Name)), FreeVars)] )
+slurpIndependentStmts stmts = go [] [] emptyNameSet stmts
+ where
+  -- If we encounter a BindStmt that doesn't depend on a previous BindStmt
+  -- in this group, then add it to the group.
+  go lets indep bndrs ((L loc (BindStmt pat body bind_op fail_op), fvs) : rest)
+    | isEmptyNameSet (bndrs `intersectNameSet` fvs)
+    = go lets (L loc (BindStmt pat body bind_op fail_op) : indep) bndrs' rest
+    where bndrs' = bndrs `unionNameSet` mkNameSet (collectPatBinders pat)
+  -- If we encounter a LetStmt that doesn't depend on a BindStmt in this
+  -- group, then move it to the beginning, so that it doesn't interfere with
+  -- grouping more BindStmts.
+  -- TODO: perhaps we shouldn't do this if there are any strict bindings,
+  -- because we might be moving evaluation earlier.
+  go lets indep bndrs ((L loc (LetStmt binds), fvs) : rest)
+    | isEmptyNameSet (bndrs `intersectNameSet` fvs)
+    = go (L loc (LetStmt binds) : lets) indep bndrs rest
+  go _ []  _ _ = Nothing
+  go _ [_] _ _ = Nothing
+  go lets indep _ stmts = Just (reverse lets, reverse indep, stmts)
+
+
 ----------------------
-rnStmt :: Outputable (body RdrName) => HsStmtContext Name
+rnStmt :: Outputable (body RdrName)
+       => HsStmtContext Name
        -> (Located (body RdrName) -> RnM (Located (body Name), FreeVars))
+          -- ^ How to rename the body of the statement
        -> LStmt RdrName (Located (body RdrName))
+          -- ^ The statement
        -> ([Name] -> RnM (thing, FreeVars))
-       -> RnM (([LStmt Name (Located (body Name))], thing), FreeVars)
+          -- ^ Rename the stuff that this statement scopes over
+       -> RnM ( ([(LStmt Name (Located (body Name)), FreeVars)], thing)
+              , FreeVars)
 -- Variables bound by the Stmt, and mentioned in thing_inside,
 -- do not appear in the result FreeVars
 
@@ -670,7 +917,7 @@ rnStmt ctxt rnBody (L loc (LastStmt body _)) thing_inside
   = do  { (body', fv_expr) <- rnBody body
         ; (ret_op, fvs1)   <- lookupStmtName ctxt returnMName
         ; (thing,  fvs3)   <- thing_inside []
-        ; return (([L loc (LastStmt body' ret_op)], thing),
+        ; return (([(L loc (LastStmt body' ret_op), fv_expr)], thing),
                   fv_expr `plusFV` fvs1 `plusFV` fvs3) }
 
 rnStmt ctxt rnBody (L loc (BodyStmt body _ _ _)) thing_inside
@@ -683,7 +930,8 @@ rnStmt ctxt rnBody (L loc (BodyStmt body _ _ _)) thing_inside
                               -- Also for sub-stmts of same eg [ e | x<-xs, gd | blah ]
                               -- Here "gd" is a guard
         ; (thing, fvs3)    <- thing_inside []
-        ; return (([L loc (BodyStmt body' then_op guard_op placeHolderType)], thing),
+        ; return (([(L loc (BodyStmt body'
+                     then_op guard_op placeHolderType), fv_expr)], thing),
                   fv_expr `plusFV` fvs1 `plusFV` fvs2 `plusFV` fvs3) }
 
 rnStmt ctxt rnBody (L loc (BindStmt pat body _ _)) thing_inside
@@ -693,15 +941,16 @@ rnStmt ctxt rnBody (L loc (BindStmt pat body _ _)) thing_inside
         ; (fail_op, fvs2) <- lookupStmtName ctxt failMName
         ; rnPat (StmtCtxt ctxt) pat $ \ pat' -> do
         { (thing, fvs3) <- thing_inside (collectPatBinders pat')
-        ; return (([L loc (BindStmt pat' body' bind_op fail_op)], thing),
+        ; return (( [(L loc (BindStmt pat' body' bind_op fail_op), fv_expr)]
+                  , thing),
                   fv_expr `plusFV` fvs1 `plusFV` fvs2 `plusFV` fvs3) }}
        -- fv_expr shouldn't really be filtered by the rnPatsAndThen
         -- but it does not matter because the names are unique
 
 rnStmt _ _ (L loc (LetStmt binds)) thing_inside
-  = do  { rnLocalBindsAndThen binds $ \binds' -> do
+  = do  { rnLocalBindsAndThen binds $ \binds' bind_fvs -> do
         { (thing, fvs) <- thing_inside (collectLocalBinders binds')
-        ; return (([L loc (LetStmt binds')], thing), fvs) }  }
+        ; return (([(L loc (LetStmt binds'), bind_fvs)], thing), fvs) }  }
 
 rnStmt ctxt rnBody (L loc (RecStmt { recS_stmts = rec_stmts })) thing_inside
   = do  { (return_op, fvs1)  <- lookupStmtName ctxt returnMName
@@ -725,14 +974,17 @@ rnStmt ctxt rnBody (L loc (RecStmt { recS_stmts = rec_stmts })) thing_inside
                                             emptyNameSet segs
         ; (thing, fvs_later) <- thing_inside bndrs
         ; let (rec_stmts', fvs) = segmentRecStmts loc ctxt empty_rec_stmt segs fvs_later
-        ; return ((rec_stmts', thing), fvs `plusFV` fvs1 `plusFV` fvs2 `plusFV` fvs3) } }
+        -- We aren't going to try to group RecStmts with
+        -- ApplicativeDo, so attaching empty FVs is fine.
+        ; return ( ((zip rec_stmts' (repeat emptyNameSet)), thing)
+                 , fvs `plusFV` fvs1 `plusFV` fvs2 `plusFV` fvs3) } }
 
 rnStmt ctxt _ (L loc (ParStmt segs _ _)) thing_inside
   = do  { (mzip_op, fvs1)   <- lookupStmtName ctxt mzipName
         ; (bind_op, fvs2)   <- lookupStmtName ctxt bindMName
         ; (return_op, fvs3) <- lookupStmtName ctxt returnMName
         ; ((segs', thing), fvs4) <- rnParallelStmts (ParStmtCtxt ctxt) return_op segs thing_inside
-        ; return ( ([L loc (ParStmt segs' mzip_op bind_op)], thing)
+        ; return ( ([(L loc (ParStmt segs' mzip_op bind_op), fvs4)], thing)
                  , fvs1 `plusFV` fvs2 `plusFV` fvs3 `plusFV` fvs4) }
 
 rnStmt ctxt _ (L loc (TransStmt { trS_stmts = stmts, trS_by = by, trS_form = form
@@ -765,10 +1017,15 @@ rnStmt ctxt _ (L loc (TransStmt { trS_stmts = stmts, trS_by = by, trS_form = for
              -- See Note [TransStmt binder map] in HsExpr
 
        ; traceRn (text "rnStmt: implicitly rebound these used binders:" <+> ppr bndr_map)
-       ; return (([L loc (TransStmt { trS_stmts = stmts', trS_bndrs = bndr_map
+       ; return (([(L loc (TransStmt { trS_stmts = stmts', trS_bndrs = bndr_map
                                     , trS_by = by', trS_using = using', trS_form = form
                                     , trS_ret = return_op, trS_bind = bind_op
-                                    , trS_fmap = fmap_op })], thing), all_fvs) }
+                                    , trS_fmap = fmap_op }), fvs2)], thing), all_fvs) }
+
+rnStmt _ _ (L _ ApplicativeBindStmt{}) _ =
+  panic "rnStmt: ApplicativeBindStmt"
+rnStmt _ _ (L _ ApplicativeLastStmt{}) _ =
+  panic "rnStmt: ApplicativeLastStmt"
 
 rnParallelStmts :: forall thing. HsStmtContext Name
                 -> SyntaxExpr Name
@@ -832,8 +1089,9 @@ Renaming parallel statements is painful.  Given, say
      [ a+c | a <- as, bs <- bss
            | c <- bs, a <- ds ]
 Note that
-  (a) In order to report "Defined by not used" about 'bs', we must rename
-      each group of Stmts with a thing_inside whose FreeVars include at least {a,c}
+  (a) In order to report "Defined but not used" about 'bs', we must
+      rename each group of Stmts with a thing_inside whose FreeVars
+      include at least {a,c}
 
   (b) We want to report that 'a' is illegally bound in both branches
 
@@ -862,11 +1120,13 @@ type Segment stmts = (Defs,
 
 -- wrapper that does both the left- and right-hand sides
 rnRecStmtsAndThen :: Outputable (body RdrName) =>
-                     (Located (body RdrName) -> RnM (Located (body Name), FreeVars))
+                     (Located (body RdrName)
+                  -> RnM (Located (body Name), FreeVars))
                   -> [LStmt RdrName (Located (body RdrName))]
                          -- assumes that the FreeVars returned includes
                          -- the FreeVars of the Segments
-                  -> ([Segment (LStmt Name (Located (body Name)))] -> RnM (a, FreeVars))
+                  -> ([Segment (LStmt Name (Located (body Name)))]
+                      -> RnM (a, FreeVars))
                   -> RnM (a, FreeVars)
 rnRecStmtsAndThen rnBody s cont
   = do  { -- (A) Make the mini fixity env for all of the stmts
@@ -940,6 +1200,12 @@ rn_rec_stmt_lhs _ stmt@(L _ (ParStmt {}))       -- Syntactically illegal in mdo
 rn_rec_stmt_lhs _ stmt@(L _ (TransStmt {}))     -- Syntactically illegal in mdo
   = pprPanic "rn_rec_stmt" (ppr stmt)
 
+rn_rec_stmt_lhs _ stmt@(L _ (ApplicativeBindStmt {})) -- Shouldn't appear yet
+  = pprPanic "rn_rec_stmt" (ppr stmt)
+
+rn_rec_stmt_lhs _ stmt@(L _ (ApplicativeLastStmt {})) -- Shouldn't appear yet
+  = pprPanic "rn_rec_stmt" (ppr stmt)
+
 rn_rec_stmt_lhs _ (L _ (LetStmt EmptyLocalBinds))
   = panic "rn_rec_stmt LetStmt EmptyLocalBinds"
 
@@ -993,8 +1259,9 @@ rn_rec_stmt _ _ (L _ (LetStmt binds@(HsIPBinds _)), _)
 rn_rec_stmt _ all_bndrs (L loc (LetStmt (HsValBinds binds')), _)
   = do { (binds', du_binds) <- rnLocalValBindsRHS (mkNameSet all_bndrs) binds'
            -- fixities and unused are handled above in rnRecStmtsAndThen
-       ; return [(duDefs du_binds, allUses du_binds,
-                  emptyNameSet, L loc (LetStmt (HsValBinds binds')))] }
+       ; let fvs = allUses du_binds
+       ; return [(duDefs du_binds, fvs, emptyNameSet,
+                 L loc (LetStmt (HsValBinds binds')))] }
 
 -- no RecStmt case because they get flattened above when doing the LHSes
 rn_rec_stmt _ _ stmt@(L _ (RecStmt {}), _)
@@ -1008,6 +1275,12 @@ rn_rec_stmt _ _ stmt@(L _ (TransStmt {}), _)     -- Syntactically illegal in mdo
 
 rn_rec_stmt _ _ (L _ (LetStmt EmptyLocalBinds), _)
   = panic "rn_rec_stmt: LetStmt EmptyLocalBinds"
+
+rn_rec_stmt _ _ stmt@(L _ (ApplicativeBindStmt {}), _)
+  = pprPanic "rn_rec_stmt: ApplicativeBindStmt" (ppr stmt)
+
+rn_rec_stmt _ _ stmt@(L _ (ApplicativeLastStmt {}), _)
+  = pprPanic "rn_rec_stmt: ApplicativeLastStmt" (ppr stmt)
 
 rn_rec_stmts :: Outputable (body RdrName) =>
                 (Located (body RdrName) -> RnM (Located (body Name), FreeVars))
@@ -1030,7 +1303,7 @@ segmentRecStmts loc ctxt empty_rec_stmt segs fvs_later
 
   | MDoExpr <- ctxt
   = segsToStmts empty_rec_stmt grouped_segs fvs_later
-                -- Step 4: Turn the segments into Stmts
+               -- Step 4: Turn the segments into Stmts
                 --         Use RecStmt when and only when there are fwd refs
                 --         Also gather up the uses from the end towards the
                 --         start, so we can tell the RecStmt which things are
@@ -1245,6 +1518,8 @@ pprStmtCat (BindStmt {})      = ptext (sLit "binding")
 pprStmtCat (LetStmt {})       = ptext (sLit "let")
 pprStmtCat (RecStmt {})       = ptext (sLit "rec")
 pprStmtCat (ParStmt {})       = ptext (sLit "parallel")
+pprStmtCat (ApplicativeBindStmt {}) = panic "pprStmtCat: ApplicativeBindStmt"
+pprStmtCat (ApplicativeLastStmt {}) = panic "pprStmtCat: ApplicativeLastStmt"
 
 ------------
 emptyInvalid :: Validity  -- Payload is the empty document
@@ -1310,6 +1585,8 @@ okCompStmt dflags _ stmt
          | otherwise -> NotValid (ptext (sLit "Use TransformListComp"))
        RecStmt {}  -> emptyInvalid
        LastStmt {} -> emptyInvalid  -- Should not happen (dealt with by checkLastStmt)
+       ApplicativeBindStmt {} -> emptyInvalid
+       ApplicativeLastStmt {} -> emptyInvalid
 
 ----------------
 okPArrStmt dflags _ stmt
@@ -1323,6 +1600,8 @@ okPArrStmt dflags _ stmt
        TransStmt {} -> emptyInvalid
        RecStmt {}   -> emptyInvalid
        LastStmt {}  -> emptyInvalid  -- Should not happen (dealt with by checkLastStmt)
+       ApplicativeBindStmt {} -> emptyInvalid
+       ApplicativeLastStmt {} -> emptyInvalid
 
 ---------
 checkTupleSection :: [LHsTupArg RdrName] -> RnM ()

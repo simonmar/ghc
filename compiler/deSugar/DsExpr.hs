@@ -38,6 +38,7 @@ import TcType
 import Coercion ( Role(..) )
 import TcEvidence
 import TcRnMonad
+import TcHsSyn
 import Type
 import CoreSyn
 import CoreUtils
@@ -854,6 +855,67 @@ dsDo stmts
                                       res1_ty (cantFailMatchResult body)
             ; match_code <- handle_failure pat match fail_op
             ; return (mkApps bind_op' [rhs', Lam var match_code]) }
+
+    go _ (ApplicativeLastStmt fun pairs mb_join body_ty) stmts
+      = ASSERT( null stmts ) do {
+             let
+               (pats, rhss, ops) =
+                  unzip3 [ (pat,rhs,op)
+                         | (L _ (BindStmt pat rhs _ _), op) <- pairs ]
+
+               arg_tys = map hsLPatType pats
+
+           ; rhss' <- mapM dsLExpr rhss
+           ; ops' <- mapM dsExpr ops
+           ; pprTrace "ApplicativeLastStmt" (ppr pairs) $ return ()
+           ; let body = L noSrcSpan $ HsLam $
+                   MG { mg_alts = [mkSimpleMatch pats fun]
+                      , mg_arg_tys = arg_tys
+                      , mg_res_ty = body_ty
+                      , mg_origin = Generated }
+           ; body' <- dsLExpr body
+           ; let mk_ap_call l (op,r) = mkApps op [l,r]
+                 expr = foldl mk_ap_call body' (zip ops' rhss')
+           ; case mb_join of
+               Nothing -> return expr
+               Just join_op ->
+                 do { join_op' <- dsExpr join_op
+                    ; return (App join_op' expr) } }
+
+    go _ (ApplicativeBindStmt pairs bind_op fail_op) stmts
+      = do { let
+               (pats, rhss, ops) =
+                  unzip3 [ (pat,rhs,op)
+                         | (L _ (BindStmt pat rhs _ _), op) <- pairs ]
+
+               arg_tys = map hsLPatType pats
+
+           ; tmps <- newSysLocalsDs arg_tys
+           ; let
+               tuple_pat = mkBigLHsPatTup pats
+               match = mkSimpleMatch (map nlVarPat tmps)
+                                     (mkBigLHsTup (map nlHsVar tmps))
+
+               tuple_con = HsLam MG { mg_alts = [match]
+                                    , mg_arg_tys = arg_tys
+                                    , mg_res_ty = mkBigCoreVarTupTy tmps
+                                    , mg_origin = Generated }
+
+           ; body <- goL stmts
+           ; rhss' <- mapM dsLExpr rhss
+           ; ops' <- mapM dsExpr ops
+           ; bind_op' <- dsExpr bind_op
+           ; var <- selectSimpleMatchVarL tuple_pat
+           ; tuple' <- dsExpr tuple_con
+           ; let bind_ty = exprType bind_op'   -- rhs -> (pat -> res1) -> res2
+                 res1_ty = funResultTy (funArgTy (funResultTy bind_ty))
+           ; match <- matchSinglePat (Var var) (StmtCtxt DoExpr) tuple_pat
+                                     res1_ty (cantFailMatchResult body)
+           ; match_code <- handle_failure tuple_pat match fail_op
+           ; let
+                 rhs = foldl mk_ap_call tuple' (zip ops' rhss')
+                 mk_ap_call l (op,r) = mkApps op [l,r]
+           ; return (mkApps bind_op' [rhs, Lam var match_code]) }
 
     go loc (RecStmt { recS_stmts = rec_stmts, recS_later_ids = later_ids
                     , recS_rec_ids = rec_ids, recS_ret_fn = return_op

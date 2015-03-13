@@ -983,6 +983,35 @@ zonkStmt env zBody (BindStmt pat body bind_op fail_op)
         ; new_fail <- zonkExpr env fail_op
         ; return (env1, BindStmt new_pat new_body new_bind new_fail) }
 
+zonkStmt env zBody (ApplicativeBindStmt pairs bind_op fail_op)
+  = do  { let doStmts env [] = return (env, [])
+              doStmts env ((s, op) : stmts)
+                = do { (env1, s') <- wrapLocSndM (zonkStmt env zBody) s
+                     ; op' <- zonkExpr env1 op
+                     ; (env2, ss) <-  doStmts env1 stmts
+                     ; return (env2, (s',op') : ss)
+                     }
+        ; (env', pairs') <- doStmts env pairs
+        ; new_bind <- zonkExpr env bind_op
+        ; new_fail <- zonkExpr env fail_op
+        ; return (env', ApplicativeBindStmt pairs' new_bind new_fail) }
+
+zonkStmt env zBody (ApplicativeLastStmt fun pairs mb_join body_ty)
+  = do  { let doStmts env [] = return (env, [])
+              doStmts env ((s, op) : stmts)
+                = do { (env1, s') <- wrapLocSndM (zonkStmt env zBody) s
+                     ; op' <- zonkExpr env1 op
+                     ; (env2, ss) <-  doStmts env1 stmts
+                     ; return (env2, (s',op') : ss)
+                     }
+        ; (env', pairs') <- doStmts env pairs
+        ; new_fun <- zBody env' fun
+        ; new_mb_join <- traverse (zonkExpr env) mb_join
+        ; new_body_ty <- zonkTcTypeToType env' body_ty
+        ; return (env', ApplicativeLastStmt new_fun pairs' new_mb_join
+                          new_body_ty) }
+
+
 -------------------------------------------------------------------------
 zonkRecFields :: ZonkEnv -> HsRecordBinds TcId -> TcM (HsRecordBinds TcId)
 zonkRecFields env (HsRecFields flds dd)

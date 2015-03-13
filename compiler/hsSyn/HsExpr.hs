@@ -40,6 +40,7 @@ import Type
 
 -- libraries:
 import Data.Data hiding (Fixity)
+import Data.Maybe (isNothing)
 
 {-
 ************************************************************************
@@ -1272,6 +1273,62 @@ data StmtLR idL idR body -- body should always be (LHs**** idR)
              -- The fail operator is noSyntaxExpr
              -- if the pattern match can't fail
 
+  -- | 'ApplicativeBindStmt' represents a sequence of independent BindStmts
+  -- that we will combine using the 'Applicative' operators as follows;
+  --
+  -- > do
+  -- >   p1 <- e1
+  -- >   ...
+  -- >   pn <- en
+  -- >
+  --
+  -- becomes
+  --
+  -- > (p1,...,pn) <- (,..,) <$> e1 <*> ... <*> en
+  --
+  | ApplicativeBindStmt
+             [ ( LStmtLR idL idR body    -- only BindStmt for now
+               , SyntaxExpr idR)
+             ]                -- [(e1, <$>), (e2, <*>), ..., (en, <*>)]
+             (SyntaxExpr idR) -- The (>>=) operator; see Note [The type of bind]
+             (SyntaxExpr idR) -- The fail operator
+             -- The fail operator is noSyntaxExpr
+             -- if the pattern match can't fail
+
+  -- | 'ApplicativeLastStmt' represents a sequence of independent
+  -- 'BindStmt's and a 'return' 'LastStmt', that we will combine using
+  -- the 'Applicative' operators as follows:
+  --
+  -- > do
+  -- >   x1 <- e1
+  -- >   ...
+  -- >   xn <- en
+  -- >   return e
+  --
+  -- becomes
+  --
+  -- > (\x1...xn -> e) <$> e1 <*> ... <*> en
+  --
+  -- If there is no 'return', as in
+  --
+  -- > do
+  -- >   x1 <- e1
+  -- >   ...
+  -- >   xn <- en
+  -- >   e
+  --
+  -- this becomes
+  --
+  -- > join ((\x1...xn -> e) <$> e1 <*> ... <*> en)
+  --
+  | ApplicativeLastStmt
+             body
+             [ ( LStmtLR idL idR body
+               , SyntaxExpr idR)
+             ]                -- [(e1, <$>), (e2, <*>), ..., (en, <*>)]
+             (Maybe (SyntaxExpr idR))  -- 'join', if necessary
+             (PostTc idL Type) -- type of the body
+
   | BodyStmt body              -- See Note [BodyStmt]
              (SyntaxExpr idR)  -- The (>>) operator
              (SyntaxExpr idR)  -- The `guard` operator; used only in MonadComp
@@ -1528,6 +1585,34 @@ pprStmt (RecStmt { recS_stmts = segment, recS_rec_ids = rec_ids
     vcat [ ppr_do_stmts segment
          , ifPprDebug (vcat [ ptext (sLit "rec_ids=") <> ppr rec_ids
                             , ptext (sLit "later_ids=") <> ppr later_ids])]
+
+pprStmt (ApplicativeBindStmt pairs _ _)
+  = getPprStyle $ \style ->
+      if not (userStyle style)
+         then ppr (TuplePat pats Boxed []) <+> larrow <+>
+                hang (parens (hcat (replicate (length pairs) comma)) <+> ptext (sLit "<$>"))
+                  2 (sep (punctuate (ptext (sLit " <*>")) (map ppr exprs)))
+         else vcat $ punctuate semi $ map (ppr.fst) pairs
+  where
+   (pats, exprs) = unzip [ (p,e) | (L _ (BindStmt p e _ _), _) <- pairs ]
+
+pprStmt (ApplicativeLastStmt body pairs mb_join _)
+  = getPprStyle $ \style ->
+      if not (userStyle style)
+         then let
+                fun = char '\\' <> hsep (map ppr pats) <+> arrow <+> ppr body
+                ap_expr = hang (parens fun <+> ptext (sLit "<$>")) 2
+                   (sep (punctuate (ptext (sLit " <*>")) (map ppr exprs)))
+              in
+                if isNothing mb_join
+                   then ap_expr
+                   else ptext (sLit "join") <+> parens ap_expr
+         else (vcat $ map (<> semi) $ map (ppr.fst) pairs) $$
+              (if isNothing mb_join
+                 then (ptext (sLit "return") <+> ppr body)
+                 else ppr body)
+  where
+   (pats, exprs) = unzip [ (p,e) | (L _ (BindStmt p e _ _), _) <- pairs ]
 
 pprTransformStmt :: OutputableBndr id => [id] -> LHsExpr id -> Maybe (LHsExpr id) -> SDoc
 pprTransformStmt bndrs using by

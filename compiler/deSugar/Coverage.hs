@@ -686,6 +686,23 @@ addTickStmt isGuard (ParStmt pairs mzipExpr bindExpr) = do
         (mapM (addTickStmtAndBinders isGuard) pairs)
         (addTickSyntaxExpr hpcSrcSpan mzipExpr)
         (addTickSyntaxExpr hpcSrcSpan bindExpr)
+addTickStmt isGuard (ApplicativeBindStmt pairs bind fail) = do
+    bodies' <- mapM doBody pairs
+    bind' <- addTickSyntaxExpr hpcSrcSpan bind
+    fail' <- addTickSyntaxExpr hpcSrcSpan fail
+    return (ApplicativeBindStmt bodies' bind' fail')
+  where
+   doBody (stmt,op) =
+     liftM2 (,) (liftL (addTickStmt isGuard) stmt)
+                (addTickSyntaxExpr hpcSrcSpan op)
+addTickStmt isGuard (ApplicativeLastStmt fun pairs mb_join body_ty) = do
+    bodies' <- mapM doBody pairs
+    fun' <- addTickLHsExpr fun
+    return (ApplicativeLastStmt fun' bodies' mb_join body_ty)
+  where
+   doBody (stmt,op) =
+     liftM2 (,) (liftL (addTickStmt isGuard) stmt)
+                (addTickSyntaxExpr hpcSrcSpan op)
 
 addTickStmt isGuard stmt@(TransStmt { trS_stmts = stmts
                                     , trS_by = by, trS_using = using
@@ -894,6 +911,10 @@ addTickCmdStmt stmt@(RecStmt {})
        ; bind'  <- addTickSyntaxExpr hpcSrcSpan (recS_bind_fn stmt)
        ; return (stmt { recS_stmts = stmts', recS_ret_fn = ret'
                       , recS_mfix_fn = mfix', recS_bind_fn = bind' }) }
+addTickCmdStmt ApplicativeBindStmt{} =
+  panic "ToDo: addTickCmdStmt ApplicativeBindStmt"
+addTickCmdStmt ApplicativeLastStmt{} =
+  panic "ToDo: addTickCmdStmt ApplicativeLastStmt"
 
 -- Others should never happen in a command context.
 addTickCmdStmt stmt  = pprPanic "addTickHsCmd" (ppr stmt)
