@@ -1529,6 +1529,8 @@ scheduleDoGC (Capability **pcap, Task *task USED_IF_THREADS,
         }
     } while (sync);
 
+    stat_startGCSync(gc_threads[cap->no]);
+
     // don't declare this until after we have sync'd, because
     // n_capabilities may change.
     rtsBool idle_cap[n_capabilities];
