@@ -687,22 +687,14 @@ addTickStmt isGuard (ParStmt pairs mzipExpr bindExpr) = do
         (addTickSyntaxExpr hpcSrcSpan mzipExpr)
         (addTickSyntaxExpr hpcSrcSpan bindExpr)
 addTickStmt isGuard (ApplicativeBindStmt pairs bind fail) = do
-    bodies' <- mapM doBody pairs
+    bodies' <- mapM (addTickApplicativeGroup isGuard) pairs
     bind' <- addTickSyntaxExpr hpcSrcSpan bind
     fail' <- addTickSyntaxExpr hpcSrcSpan fail
     return (ApplicativeBindStmt bodies' bind' fail')
-  where
-   doBody (stmt,op) =
-     liftM2 (,) (liftL (addTickStmt isGuard) stmt)
-                (addTickSyntaxExpr hpcSrcSpan op)
 addTickStmt isGuard (ApplicativeLastStmt fun pairs mb_join body_ty) = do
-    bodies' <- mapM doBody pairs
+    bodies' <- mapM (addTickApplicativeGroup isGuard) pairs
     fun' <- addTickLHsExpr fun
     return (ApplicativeLastStmt fun' bodies' mb_join body_ty)
-  where
-   doBody (stmt,op) =
-     liftM2 (,) (liftL (addTickStmt isGuard) stmt)
-                (addTickSyntaxExpr hpcSrcSpan op)
 
 addTickStmt isGuard stmt@(TransStmt { trS_stmts = stmts
                                     , trS_by = by, trS_using = using
@@ -728,6 +720,14 @@ addTickStmt isGuard stmt@(RecStmt {})
 addTick :: Maybe (Bool -> BoxLabel) -> LHsExpr Id -> TM (LHsExpr Id)
 addTick isGuard e | Just fn <- isGuard = addBinTickLHsExpr fn e
                   | otherwise          = addTickLHsExprRHS e
+
+addTickApplicativeGroup
+  :: Maybe (Bool -> BoxLabel) -> (LStmt Id (LHsExpr Id), SyntaxExpr Id)
+  -> TM (LStmt Id (LHsExpr Id), SyntaxExpr Id)
+addTickApplicativeGroup isGuard (stmt, op) =
+  liftM2 (,)
+     (liftL (addTickStmt isGuard) stmt)
+     (addTickSyntaxExpr hpcSrcSpan op)
 
 addTickStmtAndBinders :: Maybe (Bool -> BoxLabel) -> ParStmtBlock Id Id
                       -> TM (ParStmtBlock Id Id)

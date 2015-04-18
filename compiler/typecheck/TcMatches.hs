@@ -990,7 +990,7 @@ tcApplicativeStmts ctxt stmts ty thing_inside = go stmts ty
                   ; return ((L loc stmt', ap_op) : pairs, thing)
                   }
            }
-    go _ _ = panic "tcDoStmt(ApplicativeStmt)"
+    go (((stmt,_),_,_) : _) _ = pprPanic "tcDoStmt(ApplicativeStmt)" (ppr stmt)
 
 {-
 ************************************************************************

@@ -983,34 +983,34 @@ zonkStmt env zBody (BindStmt pat body bind_op fail_op)
         ; new_fail <- zonkExpr env fail_op
         ; return (env1, BindStmt new_pat new_body new_bind new_fail) }
 
-zonkStmt env zBody (ApplicativeBindStmt pairs bind_op fail_op)
-  = do  { let doStmts env [] = return (env, [])
-              doStmts env ((s, op) : stmts)
-                = do { (env1, s') <- wrapLocSndM (zonkStmt env zBody) s
-                     ; op' <- zonkExpr env1 op
-                     ; (env2, ss) <-  doStmts env1 stmts
-                     ; return (env2, (s',op') : ss)
-                     }
-        ; (env', pairs') <- doStmts env pairs
+zonkStmt env zBody (ApplicativeBindStmt groups bind_op fail_op)
+  = do  { (env', groups') <- zonkApplicativeGroups env zBody groups
         ; new_bind <- zonkExpr env bind_op
         ; new_fail <- zonkExpr env fail_op
-        ; return (env', ApplicativeBindStmt pairs' new_bind new_fail) }
+        ; return (env', ApplicativeBindStmt groups' new_bind new_fail) }
 
-zonkStmt env zBody (ApplicativeLastStmt fun pairs mb_join body_ty)
-  = do  { let doStmts env [] = return (env, [])
-              doStmts env ((s, op) : stmts)
-                = do { (env1, s') <- wrapLocSndM (zonkStmt env zBody) s
-                     ; op' <- zonkExpr env1 op
-                     ; (env2, ss) <-  doStmts env1 stmts
-                     ; return (env2, (s',op') : ss)
-                     }
-        ; (env', pairs') <- doStmts env pairs
+zonkStmt env zBody (ApplicativeLastStmt fun groups mb_join body_ty)
+  = do  { (env', groups') <- zonkApplicativeGroups env zBody groups
         ; new_fun <- zBody env' fun
         ; new_mb_join <- traverse (zonkExpr env) mb_join
         ; new_body_ty <- zonkTcTypeToType env' body_ty
-        ; return (env', ApplicativeLastStmt new_fun pairs' new_mb_join
+        ; return (env', ApplicativeLastStmt new_fun groups' new_mb_join
                           new_body_ty) }
 
+zonkApplicativeGroups
+  :: ZonkEnv
+  -> (ZonkEnv -> Located (body TcId) -> TcM (Located (body Id)))
+  -> [(LStmt TcId (Located (body TcId)),
+       SyntaxExpr TcId)]
+  -> TcM (ZonkEnv, [(LStmt Id (Located (body Id)), SyntaxExpr TcId)])
+
+zonkApplicativeGroups env _zBody [] = return (env, [])
+zonkApplicativeGroups env zBody ((s, op) : groups)
+ = do { (env1, s') <- wrapLocSndM (zonkStmt env zBody) s
+      ; op' <- zonkExpr env1 op
+      ; (env2, ss) <- zonkApplicativeGroups env1 zBody groups
+      ; return (env2, (s',op') : ss)
+      }
 
 -------------------------------------------------------------------------
 zonkRecFields :: ZonkEnv -> HsRecordBinds TcId -> TcM (HsRecordBinds TcId)

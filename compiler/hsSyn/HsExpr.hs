@@ -1323,7 +1323,7 @@ data StmtLR idL idR body -- body should always be (LHs**** idR)
   --
   | ApplicativeLastStmt
              body
-             [ ( LStmtLR idL idR body
+             [ ( ApplicativeArg idL idR body
                , SyntaxExpr idR)
              ]                -- [(e1, <$>), (e2, <*>), ..., (en, <*>)]
              (Maybe (SyntaxExpr idR))  -- 'join', if necessary
@@ -1422,6 +1422,11 @@ data ParStmtBlock idL idR
         (SyntaxExpr idR)   -- The return operator
   deriving( Typeable )
 deriving instance (DataId idL, DataId idR) => Data (ParStmtBlock idL idR)
+
+data ApplicativeArg
+ = ApplicativeArgOne (LStmtLR idL idR body)
+ | ApplicativeArgMany (LPat idL) [LStmtLR idL idR body]
+  deriving (Data, Typeable)
 
 {-
 Note [The type of bind in Stmts]

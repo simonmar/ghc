@@ -15,7 +15,21 @@ test1 = do
   let y = doc "y"
   return ()
 
-main = run test1
+-- ((a | b) ; (c | d)) | e
+test2 :: M ()
+test2 = do
+  x1 <- doc "a"
+  x2 <- doc "b"
+  let z1 = (x1,x2)
+  x3 <- const (doc "c") x1
+  let z2 = (x1,x2)
+  x4 <- const (doc "d") z1
+  x5 <- doc "e"
+  return (const () (x3,x4,x5))
+
+main = do
+  run test1
+  run test2
 
 -- Testing code, prints out the structure of a monad/applicative expression
 

@@ -732,173 +732,6 @@ rnStmtsWithFreeVars ctxt rnBody (lstmt@(L loc _) : lstmts) thing_inside
                     thing_inside (bndrs1 ++ bndrs2) }
         ; return (((stmts1 ++ stmts2), thing), fvs) }
 
-
-{- Note [ApplicativeDo]
-
-For now, we implement the simplest version of the tranformation, which
-works as follows.  For a sequence of statements
-
-  pat1 <- E1
-  ...
-  patn <- En
-
-where none of the variables bound in pat_1..pat_n are mentioned in
-E1..En, we translate this to:
-
-  (pat1, ..., patn) <- (,...,) <$> E1 <*> ... <*> En
-
-and the transformation is applied
-  (a) greedily, so we grab as many binds as we can, and
-  (b) repeatedly within a sequence of statements
-
-If the sequence of binds is followed by a return statement, like this:
-
-  pat1 <- E1
-  ...
-  patn <- En
-  return E
-
-then we transform it to
-
-  (\pat1 ... patn) -> E) <$> E1 <*> ... <*> En
-
-which has the advantage that it only depends on Applicative operators
-and not Monad, so it works for non-monadic types too.
-
-
-ToDo: figure out a good way to apply the more general transformation, which is
-
-  S1
-  S2
-
-  ==>
-
-  (tup(S1), tup(S2)) <-
-     (,)
-       <$> do { S1; return tup(S1) }
-       <*> do { S2; return tup(S2) }
-
-where
-
-  S1,S2 are sequences of statements
-  S2 does not mention any of the variables bound by S1
-
-Which does a better job with this example:
-
- do
-  a <- e1
-  b <- e2
-  c <- f b
-  d <- e3
-  ...
-
-with the current transformation we will get
-
- do
-  (a,b) <- (,) <$> e1 <*> e2
-  (c,d) <- (,) <$> f b <*> e3
-  ...
-
-whereas what we really want is
-
- do
-  (a,(b,c),d) <-
-    (,,)
-      <$> e1
-      <*> (do b <- e2; c <- f b; return (b,c))
-      <*> e3
-  ...
-
-because this way we get to do all of e1,e2,e3 in parallel.
--}
-
--- | rearrange a list of statements using ApplicativeDoStmt.  See
--- Note [ApplicativeDo].
-rearrangeForApplicativeDo
-  :: HsStmtContext Name
-  -> [(LStmt Name (LHsExpr Name), FreeVars)]
-  -> RnM ([LStmt Name (LHsExpr Name)], FreeVars)
-
-rearrangeForApplicativeDo _ [] = return ([], emptyNameSet)
-
-rearrangeForApplicativeDo ctxt stmts
-  | Just (lets, group, [(L _ (LastStmt body _), _)]) <- indep_stmts
-  = do { (fmap_op, fvs1) <- lookupStmtName ctxt fmapName
-       ; (ap_op, fvs2) <- lookupStmtName ctxt apAName
-       ; (mb_join, fun, fvs3) <- case checkApplicativeLast body of
-           Nothing ->
-             do { (join_op, fvs) <- lookupStmtName ctxt joinMName
-                ; return (Just join_op, body, fvs) }
-           Just ret_arg ->
-             return (Nothing, ret_arg, emptyNameSet)
-       ; let span = foldr1 combineSrcSpans (map getLoc group)
-             applicative_stmt = L span $ ApplicativeLastStmt
-               fun
-               (zip group (fmap_op : repeat ap_op))
-               mb_join
-               placeHolderType
-       ; return (lets ++ [applicative_stmt], fvs1 `plusFV` fvs2 `plusFV` fvs3) }
-
-  | Just (lets, group, rest) <- indep_stmts
-  = do { (fmap_op, fvs1) <- lookupStmtName ctxt fmapName
-       ; (ap_op, fvs2) <- lookupStmtName ctxt apAName
-       ; (bind_op, fvs3) <- lookupStmtName ctxt bindMName
-       ; (fail_op, fvs4) <- lookupStmtName ctxt failMName
-       ; let span = foldr1 combineSrcSpans (map getLoc group)
-             applicative_stmt = L span $ ApplicativeBindStmt
-               (zip group (fmap_op : repeat ap_op))
-               bind_op
-               fail_op
-       ; (rest', fvs5) <- rearrangeForApplicativeDo ctxt rest
-       ; return (lets ++ applicative_stmt : rest',
-                 fvs1 `plusFV` fvs2 `plusFV` fvs3 `plusFV` fvs4 `plusFV` fvs5)
-       }
-  where
-    indep_stmts = slurpIndependentStmts stmts
-
-rearrangeForApplicativeDo ctxt ((stmt,_) : stmts)
-  = do { (stmts', fvs) <- rearrangeForApplicativeDo ctxt stmts
-       ; return (stmt : stmts', fvs) }
-
-
-checkApplicativeLast :: LHsExpr Name -> Maybe (LHsExpr Name)
-checkApplicativeLast (L _ (HsPar expr)) = checkApplicativeLast expr
-checkApplicativeLast (L _ (HsApp f arg))
-  | isReturn f = Just arg
-  | otherwise  = Nothing
- where
-  isReturn (L _ (HsPar e)) = isReturn e
-  isReturn (L _ (HsVar r)) = r == returnMName
-       -- TODO: I don't know how to get this right for rebindable syntax
-  isReturn _ = False
-checkApplicativeLast _ = Nothing
-
-slurpIndependentStmts
-   :: [(LStmt Name (Located (body Name)), FreeVars)]
-   -> Maybe ( [LStmt Name (Located (body Name))] -- LetStmts
-            , [LStmt Name (Located (body Name))] -- BindStmts
-            , [(LStmt Name (Located (body Name)), FreeVars)] )
-slurpIndependentStmts stmts = go [] [] emptyNameSet stmts
- where
-  -- If we encounter a BindStmt that doesn't depend on a previous BindStmt
-  -- in this group, then add it to the group.
-  go lets indep bndrs ((L loc (BindStmt pat body bind_op fail_op), fvs) : rest)
-    | isEmptyNameSet (bndrs `intersectNameSet` fvs)
-    = go lets (L loc (BindStmt pat body bind_op fail_op) : indep) bndrs' rest
-    where bndrs' = bndrs `unionNameSet` mkNameSet (collectPatBinders pat)
-  -- If we encounter a LetStmt that doesn't depend on a BindStmt in this
-  -- group, then move it to the beginning, so that it doesn't interfere with
-  -- grouping more BindStmts.
-  -- TODO: perhaps we shouldn't do this if there are any strict bindings,
-  -- because we might be moving evaluation earlier.
-  go lets indep bndrs ((L loc (LetStmt binds), fvs) : rest)
-    | isEmptyNameSet (bndrs `intersectNameSet` fvs)
-    = go (L loc (LetStmt binds) : lets) indep bndrs rest
-  go _ []  _ _ = Nothing
-  go _ [_] _ _ = Nothing
-  go lets indep _ stmts = Just (reverse lets, reverse indep, stmts)
-
-
 ----------------------
 rnStmt :: Outputable (body RdrName)
        => HsStmtContext Name
@@ -1443,6 +1276,232 @@ segsToStmts empty_rec_stmt ((defs, uses, fwds, ss) : segs) fvs_later
     non_rec    = isSingleton ss && isEmptyNameSet fwds
     used_later = defs `intersectNameSet` later_uses
                                 -- The ones needed after the RecStmt
+
+{-
+************************************************************************
+*                                                                      *
+ApplicativeDo
+*                                                                      *
+************************************************************************
+
+Note [ApplicativeDo]
+
+For now, we implement the simplest version of the tranformation, which
+works as follows.  For a sequence of statements
+
+  pat1 <- E1
+  ...
+  patn <- En
+
+where none of the variables bound in pat_1..pat_n are mentioned in
+E1..En, we translate this to:
+
+  (pat1, ..., patn) <- (,...,) <$> E1 <*> ... <*> En
+
+and the transformation is applied
+  (a) greedily, so we grab as many binds as we can, and
+  (b) repeatedly within a sequence of statements
+
+If the sequence of binds is followed by a return statement, like this:
+
+  pat1 <- E1
+  ...
+  patn <- En
+  return E
+
+then we transform it to
+
+  (\pat1 ... patn) -> E) <$> E1 <*> ... <*> En
+
+which has the advantage that it only depends on Applicative operators
+and not Monad, so it works for non-monadic types too.
+
+-}
+
+-- | rearrange a list of statements using ApplicativeDoStmt.  See
+-- Note [ApplicativeDo].
+rearrangeForApplicativeDo
+  :: HsStmtContext Name
+  -> [(LStmt Name (LHsExpr Name), FreeVars)]
+  -> RnM ([LStmt Name (LHsExpr Name)], FreeVars)
+
+rearrangeForApplicativeDo _ [] = return ([], emptyNameSet)
+rearrangeForApplicativeDo ctxt stmts0 = do
+  (stmts', fvs) <- ado ctxt stmts [last] last_fvs
+  return (stmts', fvs)
+  where (stmts,(last,last_fvs)) = findLast stmts0
+        findLast [] = error "findLast"
+        findLast [last] = ([],last)
+        findLast (x:xs) = (x:rest,last) where (rest,last) = findLast xs
+
+mkApplicativeLastStmt
+  :: HsStmtContext Name
+  -> [LStmt Name (LHsExpr Name)]
+  -> LHsExpr Name
+  -> RnM (LStmt Name (LHsExpr Name), FreeVars)
+mkApplicativeLastStmt ctxt stmts last
+  = do { (fmap_op, fvs1) <- lookupStmtName ctxt fmapName
+       ; (ap_op, fvs2) <- lookupStmtName ctxt apAName
+       ; (mb_join, fun, fvs3) <- case checkApplicativeLast last of
+           Nothing ->
+             do { (join_op, fvs) <- lookupStmtName ctxt joinMName
+                ; return (Just join_op, last, fvs) }
+           Just ret_arg ->
+             return (Nothing, ret_arg, emptyNameSet)
+       ; let span = foldr1 combineSrcSpans (map getLoc stmts)
+             applicative_stmt = L span $ ApplicativeLastStmt
+               fun
+               (zip stmts (fmap_op : repeat ap_op))
+               mb_join
+               placeHolderType
+       ; return (applicative_stmt, fvs1 `plusFV` fvs2 `plusFV` fvs3) }
+
+checkApplicativeLast :: LHsExpr Name -> Maybe (LHsExpr Name)
+checkApplicativeLast (L _ (HsPar expr)) = checkApplicativeLast expr
+checkApplicativeLast (L _ (HsApp f arg))
+  | isReturn f = Just arg
+  | otherwise  = Nothing
+ where
+  isReturn (L _ (HsPar e)) = isReturn e
+  isReturn (L _ (HsVar r)) = r == returnMName
+       -- TODO: I don't know how to get this right for rebindable syntax
+  isReturn _ = False
+checkApplicativeLast _ = Nothing
+
+ado
+  :: HsStmtContext Name
+  -> [(LStmt Name (LHsExpr Name), FreeVars)]
+  -> [LStmt Name (LHsExpr Name)]
+  -> FreeVars
+  -> RnM ( [LStmt Name (LHsExpr Name)], FreeVars )
+ado _ctxt []        lasts _ = return (lasts, emptyNameSet)
+ado _ctxt [(one,_)] lasts _ = return (one:lasts, emptyNameSet)
+ado ctxt stmts lasts last_fvs =
+  case segments stmts of
+    [] -> panic "ado"
+    [one] -> adoSegment ctxt one lasts last_fvs
+    segs ->
+      do { pairs <- mapM (adoSegmentToBind ctxt last_fvs) segs
+         ; let (stmts', fvss) = unzip pairs
+         ; let last' = mkLastExpr lasts
+         ; (final_stmt, fvs) <- mkApplicativeLastStmt ctxt stmts' last'
+         ; return ([final_stmt], unionNameSets (fvs:fvss)) }
+
+mkLastExpr
+  :: [LStmt Name (LHsExpr Name)]
+  -> LHsExpr Name
+mkLastExpr [L _ (LastStmt e _)] = e
+mkLastExpr stmts =
+  noLoc $ HsDo  DoExpr stmts placeHolderType
+
+adoSegment
+  :: HsStmtContext Name
+  -> [(LStmt Name (LHsExpr Name), FreeVars)]
+  -> [LStmt Name (LHsExpr Name)]
+  -> FreeVars
+  -> RnM ( [LStmt Name (LHsExpr Name)], FreeVars )
+adoSegment ctxt stmts lasts last_fvs
+ = do { let (before,after) = splitSegment stmts
+      ; (stmts1, fvs1) <- ado ctxt after lasts last_fvs
+      ; let last1_fvs = unionNameSets (last_fvs : map snd after)
+      ; (stmts2, fvs2) <- ado ctxt before stmts1 last1_fvs
+      ; return (stmts2, fvs1 `plusFV` fvs2) }
+
+adoSegmentToBind
+  :: HsStmtContext Name
+  -> FreeVars
+  -> [(LStmt Name (LHsExpr Name), FreeVars)]
+  -> RnM (LStmt Name (LHsExpr Name), FreeVars)
+adoSegmentToBind _ _ [one] = return one
+adoSegmentToBind ctxt last_fvs stmts =
+  do { (return_name, fvs1) <- lookupStmtName ctxt returnMName
+     ; let pvarset = mkNameSet (concatMap (collectStmtBinders.unLoc.fst) stmts)
+                      `intersectNameSet` last_fvs
+           pvars = nameSetElems pvarset
+           etup = mkLHsVarTuple pvars
+           ptup = mkLHsVarTuplePat pvars
+           ret_stmt = noLoc (LastStmt (nlHsApp (noLoc return_name) etup)
+                       return_name)
+     ; (stmts',fvs2) <- adoSegment ctxt stmts [ret_stmt] pvarset
+     ; let thedo = HsDo DoExpr stmts' placeHolderType
+     ; (bind_op, fvs3) <- lookupStmtName ctxt bindMName
+     ; (fail_op, fvs4) <- lookupStmtName ctxt failMName
+     ; return ( noLoc $ BindStmt ptup (noLoc thedo) bind_op fail_op
+              , fvs1 `plusFV` fvs2 `plusFV` fvs3 `plusFV` fvs4 ) }
+
+segments
+  :: [(LStmt Name (LHsExpr Name), FreeVars)]
+  -> [[(LStmt Name (LHsExpr Name), FreeVars)]]
+segments stmts = let r = map fst $ merge $ reverse $ map reverse $ walk (reverse stmts) in pprTrace "segments" (ppr r) r
+  where
+    allvars = mkNameSet (concatMap (collectStmtBinders.unLoc.fst) stmts)
+
+    merge [] = []
+    merge (seg : segs)
+       = case rest of
+          [] -> [(seg,all_lets)]
+          ((s,s_lets):ss) | all_lets || s_lets
+               -> (seg ++ s, all_lets && s_lets) : ss
+          _otherwise -> (seg,all_lets) : rest
+      where
+        rest = merge segs
+        all_lets = all (not . isBindStmt . fst) seg
+
+    walk [] = []
+    walk ((stmt,fvs) : stmts) = ((stmt,fvs) : seg) : walk rest
+      where (seg,rest) = chunter (fvs `intersectNameSet` allvars) stmts
+
+    chunter _ [] = ([], [])
+    chunter vars ((stmt,fvs) : rest)
+       | not (isEmptyNameSet vars)
+       = ((stmt,fvs) : chunk, rest')
+       where (chunk,rest') = chunter vars' rest
+             evars = fvs `intersectNameSet` allvars
+             pvars = mkNameSet (collectStmtBinders (unLoc stmt))
+             vars' = (vars `minusNameSet` pvars) `unionNameSet` evars
+    chunter _ rest = ([], rest)
+
+    isBindStmt (L _ BindStmt{}) = True
+    isBindStmt _ = False
+
+splitSegment
+  :: [(LStmt Name (LHsExpr Name), FreeVars)]
+  -> ( [(LStmt Name (LHsExpr Name), FreeVars)]
+     , [(LStmt Name (LHsExpr Name), FreeVars)] )
+splitSegment stmts
+  | Just (lets,binds,rest) <- slurpIndependentStmts stmts
+  =  pprTrace "splitSegment" (ppr lets $$ ppr binds $$ ppr rest) $
+     if not (null lets)
+       then (lets, binds++rest)
+       else (lets++binds, rest)
+  | otherwise
+  = splitAt (length stmts `div` 2) stmts
+
+slurpIndependentStmts
+   :: [(LStmt Name (Located (body Name)), FreeVars)]
+   -> Maybe ( [(LStmt Name (Located (body Name)), FreeVars)] -- LetStmts
+            , [(LStmt Name (Located (body Name)), FreeVars)] -- BindStmts
+            , [(LStmt Name (Located (body Name)), FreeVars)] )
+slurpIndependentStmts stmts = go [] [] emptyNameSet stmts
+ where
+  -- If we encounter a BindStmt that doesn't depend on a previous BindStmt
+  -- in this group, then add it to the group.
+  go lets indep bndrs ((L loc (BindStmt pat body bind_op fail_op), fvs) : rest)
+    | isEmptyNameSet (bndrs `intersectNameSet` fvs)
+    = go lets ((L loc (BindStmt pat body bind_op fail_op), fvs) : indep) bndrs' rest
+    where bndrs' = bndrs `unionNameSet` mkNameSet (collectPatBinders pat)
+  -- If we encounter a LetStmt that doesn't depend on a BindStmt in this
+  -- group, then move it to the beginning, so that it doesn't interfere with
+  -- grouping more BindStmts.
+  -- TODO: perhaps we shouldn't do this if there are any strict bindings,
+  -- because we might be moving evaluation earlier.
+  go lets indep bndrs ((L loc (LetStmt binds), fvs) : rest)
+    | isEmptyNameSet (bndrs `intersectNameSet` fvs)
+    = go ((L loc (LetStmt binds), fvs) : lets) indep bndrs rest
+  go _ []  _ _ = Nothing
+  go _ [_] _ _ = Nothing
+  go lets indep _ stmts = Just (reverse lets, reverse indep, stmts)
+
 
 {-
 ************************************************************************

@@ -42,6 +42,7 @@ module HsUtils(
   mkNPat, mkNPlusKPat, nlVarPat, nlLitPat, nlConVarPat, nlConPat,
   nlConPatName, nlInfixConPat, nlNullaryConPat, nlWildConPat, nlWildPat,
   nlWildPatName, nlWildPatId, nlTuplePat, mkParPat,
+  mkLHsVarTuplePat, mkLHsTuplePat,
 
   -- Types
   mkHsAppTy, userHsTyVarBndrs,
@@ -421,6 +422,15 @@ mkLHsVarTuple ids  = mkLHsTupleExpr (map nlHsVar ids)
 
 nlTuplePat :: [LPat id] -> Boxity -> LPat id
 nlTuplePat pats box = noLoc (TuplePat pats box [])
+
+-- | Make a boxed tuple pattern, deals with singleton case
+mkLHsTuplePat :: [LPat id] -> LPat id
+mkLHsTuplePat [p] = p
+mkLHsTuplePat pats = nlTuplePat pats Boxed
+
+-- | Make a boxed tuple pattern of variables, deals with singleton case
+mkLHsVarTuplePat :: [a] -> LPat a
+mkLHsVarTuplePat = mkLHsTuplePat . map nlVarPat
 
 missingTupArg :: HsTupArg RdrName
 missingTupArg = Missing placeHolderType
