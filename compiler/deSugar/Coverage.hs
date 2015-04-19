@@ -686,14 +686,12 @@ addTickStmt isGuard (ParStmt pairs mzipExpr bindExpr) = do
         (mapM (addTickStmtAndBinders isGuard) pairs)
         (addTickSyntaxExpr hpcSrcSpan mzipExpr)
         (addTickSyntaxExpr hpcSrcSpan bindExpr)
-addTickStmt isGuard (ApplicativeBindStmt pairs bind fail) = do
-    bodies' <- mapM (addTickApplicativeGroup isGuard) pairs
-    bind' <- addTickSyntaxExpr hpcSrcSpan bind
-    fail' <- addTickSyntaxExpr hpcSrcSpan fail
-    return (ApplicativeBindStmt bodies' bind' fail')
 addTickStmt isGuard (ApplicativeLastStmt fun pairs mb_join body_ty) = do
     bodies' <- mapM (addTickApplicativeGroup isGuard) pairs
-    fun' <- addTickLHsExpr fun
+    fun' <- case fun of
+      ApplicativeBodyExpr e -> ApplicativeBodyExpr <$> addTickLHsExpr e
+      ApplicativeBodyStmts stmts ->
+        ApplicativeBodyStmts <$> addTickLStmts isGuard stmts
     return (ApplicativeLastStmt fun' bodies' mb_join body_ty)
 
 addTickStmt isGuard stmt@(TransStmt { trS_stmts = stmts
@@ -722,12 +720,18 @@ addTick isGuard e | Just fn <- isGuard = addBinTickLHsExpr fn e
                   | otherwise          = addTickLHsExprRHS e
 
 addTickApplicativeGroup
-  :: Maybe (Bool -> BoxLabel) -> (LStmt Id (LHsExpr Id), SyntaxExpr Id)
-  -> TM (LStmt Id (LHsExpr Id), SyntaxExpr Id)
-addTickApplicativeGroup isGuard (stmt, op) =
-  liftM2 (,)
-     (liftL (addTickStmt isGuard) stmt)
-     (addTickSyntaxExpr hpcSrcSpan op)
+  :: Maybe (Bool -> BoxLabel) -> (ApplicativeArg Id, SyntaxExpr Id)
+  -> TM (ApplicativeArg Id, SyntaxExpr Id)
+addTickApplicativeGroup isGuard (arg, op) =
+  liftM2 (,) (addTickArg arg) (addTickSyntaxExpr hpcSrcSpan op)
+ where
+  addTickArg (ApplicativeArgOne stmt) =
+    ApplicativeArgOne <$> liftL (addTickStmt isGuard) stmt
+  addTickArg (ApplicativeArgMany pat stmts ty) =
+    ApplicativeArgMany
+      <$> addTickLPat pat
+      <*> addTickLStmts isGuard stmts
+      <*> return ty
 
 addTickStmtAndBinders :: Maybe (Bool -> BoxLabel) -> ParStmtBlock Id Id
                       -> TM (ParStmtBlock Id Id)
@@ -911,8 +915,6 @@ addTickCmdStmt stmt@(RecStmt {})
        ; bind'  <- addTickSyntaxExpr hpcSrcSpan (recS_bind_fn stmt)
        ; return (stmt { recS_stmts = stmts', recS_ret_fn = ret'
                       , recS_mfix_fn = mfix', recS_bind_fn = bind' }) }
-addTickCmdStmt ApplicativeBindStmt{} =
-  panic "ToDo: addTickCmdStmt ApplicativeBindStmt"
 addTickCmdStmt ApplicativeLastStmt{} =
   panic "ToDo: addTickCmdStmt ApplicativeLastStmt"
 

@@ -1,7 +1,14 @@
-(<*>
-   a >>= Done
-   b) >>= (<*>
-             <*>
-               c >>= Done
-               d
-             e)
+<*>
+  <*>
+    <*>
+      a >>= Done
+      b >>= (c >>= Done)
+    d
+  e >>= Done
+<*>
+  ((<*>
+      a >>= Done
+      b) >>= (<*>
+                c >>= Done
+                d)) >>= Done
+  e

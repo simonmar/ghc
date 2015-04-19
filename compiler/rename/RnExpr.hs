@@ -578,15 +578,12 @@ methodNamesStmt :: StmtLR Name Name (LHsCmd Name) -> FreeVars
 methodNamesStmt (LastStmt cmd _)                 = methodNamesLCmd cmd
 methodNamesStmt (BodyStmt cmd _ _ _)             = methodNamesLCmd cmd
 methodNamesStmt (BindStmt _ cmd _ _)             = methodNamesLCmd cmd
-methodNamesStmt (ApplicativeBindStmt pairs _ _)  =
-  methodNamesStmts (map fst pairs)
-methodNamesStmt (ApplicativeLastStmt _ pairs _ _)  =
-  methodNamesStmts (map fst pairs)
 methodNamesStmt (RecStmt { recS_stmts = stmts }) =
   methodNamesStmts stmts `addOneFV` loopAName
 methodNamesStmt (LetStmt {})                     = emptyFVs
 methodNamesStmt (ParStmt {})                     = emptyFVs
 methodNamesStmt (TransStmt {})                   = emptyFVs
+methodNamesStmt ApplicativeLastStmt{}            = emptyFVs
    -- ParStmt and TransStmt can't occur in commands, but it's not
    -- convenient to error here so we just do what's convenient
 
@@ -671,7 +668,7 @@ postProcessStmtsForApplicativeDo
   -> RnM ([LStmt Name (LHsExpr Name)], FreeVars)
 postProcessStmtsForApplicativeDo ctxt stmts
   = do {
-       -- rearrange the statements using ApplicativeBindStmt if
+       -- rearrange the statements using ApplicativeLastStmt if
        -- -XApplicativeDo is on.  Also strip out the FreeVars attached
        -- to each Stmt body.
          ado_is_on <- xoptM Opt_ApplicativeDo
@@ -855,8 +852,6 @@ rnStmt ctxt _ (L loc (TransStmt { trS_stmts = stmts, trS_by = by, trS_form = for
                                     , trS_ret = return_op, trS_bind = bind_op
                                     , trS_fmap = fmap_op }), fvs2)], thing), all_fvs) }
 
-rnStmt _ _ (L _ ApplicativeBindStmt{}) _ =
-  panic "rnStmt: ApplicativeBindStmt"
 rnStmt _ _ (L _ ApplicativeLastStmt{}) _ =
   panic "rnStmt: ApplicativeLastStmt"
 
@@ -1033,9 +1028,6 @@ rn_rec_stmt_lhs _ stmt@(L _ (ParStmt {}))       -- Syntactically illegal in mdo
 rn_rec_stmt_lhs _ stmt@(L _ (TransStmt {}))     -- Syntactically illegal in mdo
   = pprPanic "rn_rec_stmt" (ppr stmt)
 
-rn_rec_stmt_lhs _ stmt@(L _ (ApplicativeBindStmt {})) -- Shouldn't appear yet
-  = pprPanic "rn_rec_stmt" (ppr stmt)
-
 rn_rec_stmt_lhs _ stmt@(L _ (ApplicativeLastStmt {})) -- Shouldn't appear yet
   = pprPanic "rn_rec_stmt" (ppr stmt)
 
@@ -1108,9 +1100,6 @@ rn_rec_stmt _ _ stmt@(L _ (TransStmt {}), _)     -- Syntactically illegal in mdo
 
 rn_rec_stmt _ _ (L _ (LetStmt EmptyLocalBinds), _)
   = panic "rn_rec_stmt: LetStmt EmptyLocalBinds"
-
-rn_rec_stmt _ _ stmt@(L _ (ApplicativeBindStmt {}), _)
-  = pprPanic "rn_rec_stmt: ApplicativeBindStmt" (ppr stmt)
 
 rn_rec_stmt _ _ stmt@(L _ (ApplicativeLastStmt {}), _)
   = pprPanic "rn_rec_stmt: ApplicativeLastStmt" (ppr stmt)
@@ -1336,37 +1325,42 @@ rearrangeForApplicativeDo ctxt stmts0 = do
 
 mkApplicativeLastStmt
   :: HsStmtContext Name
+  -> [ApplicativeArg Name]
   -> [LStmt Name (LHsExpr Name)]
-  -> LHsExpr Name
   -> RnM (LStmt Name (LHsExpr Name), FreeVars)
-mkApplicativeLastStmt ctxt stmts last
+mkApplicativeLastStmt ctxt args body_stmts
   = do { (fmap_op, fvs1) <- lookupStmtName ctxt fmapName
        ; (ap_op, fvs2) <- lookupStmtName ctxt apAName
-       ; (mb_join, fun, fvs3) <- case checkApplicativeLast last of
-           Nothing ->
+       ; (mb_join, fvs3) <-
+           if need_join then
              do { (join_op, fvs) <- lookupStmtName ctxt joinMName
-                ; return (Just join_op, last, fvs) }
-           Just ret_arg ->
-             return (Nothing, ret_arg, emptyNameSet)
-       ; let span = foldr1 combineSrcSpans (map getLoc stmts)
-             applicative_stmt = L span $ ApplicativeLastStmt
-               fun
-               (zip stmts (fmap_op : repeat ap_op))
+                ; return (Just join_op, fvs) }
+           else
+             return (Nothing, emptyNameSet)
+       ; let applicative_stmt = noLoc $ ApplicativeLastStmt
+               body
+               (zip args (fmap_op : repeat ap_op))
                mb_join
                placeHolderType
        ; return (applicative_stmt, fvs1 `plusFV` fvs2 `plusFV` fvs3) }
+  where
+    (body, need_join) = case body_stmts of
+      [L _ (LastStmt e _)] -> case is_return e of
+        Just arg -> (ApplicativeBodyExpr arg, False)
+        Nothing  -> (ApplicativeBodyExpr e, True)
+      more -> (ApplicativeBodyStmts more, True)
 
-checkApplicativeLast :: LHsExpr Name -> Maybe (LHsExpr Name)
-checkApplicativeLast (L _ (HsPar expr)) = checkApplicativeLast expr
-checkApplicativeLast (L _ (HsApp f arg))
-  | isReturn f = Just arg
-  | otherwise  = Nothing
- where
-  isReturn (L _ (HsPar e)) = isReturn e
-  isReturn (L _ (HsVar r)) = r == returnMName
-       -- TODO: I don't know how to get this right for rebindable syntax
-  isReturn _ = False
-checkApplicativeLast _ = Nothing
+    is_return :: LHsExpr Name -> Maybe (LHsExpr Name)
+    is_return (L _ (HsPar expr)) = check_last expr
+    is_return (L _ (HsApp f arg))
+      | isReturn f = Just arg
+      | otherwise  = Nothing
+     where
+      isReturn (L _ (HsPar e)) = isReturn e
+      isReturn (L _ (HsVar r)) = r == returnMName
+           -- TODO: I don't know how to get this right for rebindable syntax
+      isReturn _ = False
+    check_last _ = Nothing
 
 ado
   :: HsStmtContext Name
@@ -1381,18 +1375,10 @@ ado ctxt stmts lasts last_fvs =
     [] -> panic "ado"
     [one] -> adoSegment ctxt one lasts last_fvs
     segs ->
-      do { pairs <- mapM (adoSegmentToBind ctxt last_fvs) segs
+      do { pairs <- mapM (adoSegmentArg ctxt last_fvs) segs
          ; let (stmts', fvss) = unzip pairs
-         ; let last' = mkLastExpr lasts
-         ; (final_stmt, fvs) <- mkApplicativeLastStmt ctxt stmts' last'
+         ; (final_stmt, fvs) <- mkApplicativeLastStmt ctxt stmts' lasts
          ; return ([final_stmt], unionNameSets (fvs:fvss)) }
-
-mkLastExpr
-  :: [LStmt Name (LHsExpr Name)]
-  -> LHsExpr Name
-mkLastExpr [L _ (LastStmt e _)] = e
-mkLastExpr stmts =
-  noLoc $ HsDo  DoExpr stmts placeHolderType
 
 adoSegment
   :: HsStmtContext Name
@@ -1407,13 +1393,13 @@ adoSegment ctxt stmts lasts last_fvs
       ; (stmts2, fvs2) <- ado ctxt before stmts1 last1_fvs
       ; return (stmts2, fvs1 `plusFV` fvs2) }
 
-adoSegmentToBind
+adoSegmentArg
   :: HsStmtContext Name
   -> FreeVars
   -> [(LStmt Name (LHsExpr Name), FreeVars)]
-  -> RnM (LStmt Name (LHsExpr Name), FreeVars)
-adoSegmentToBind _ _ [one] = return one
-adoSegmentToBind ctxt last_fvs stmts =
+  -> RnM (ApplicativeArg Name, FreeVars)
+adoSegmentArg _ _ [(one,_)] = return (ApplicativeArgOne one, emptyFVs)
+adoSegmentArg ctxt last_fvs stmts =
   do { (return_name, fvs1) <- lookupStmtName ctxt returnMName
      ; let pvarset = mkNameSet (concatMap (collectStmtBinders.unLoc.fst) stmts)
                       `intersectNameSet` last_fvs
@@ -1423,11 +1409,8 @@ adoSegmentToBind ctxt last_fvs stmts =
            ret_stmt = noLoc (LastStmt (nlHsApp (noLoc return_name) etup)
                        return_name)
      ; (stmts',fvs2) <- adoSegment ctxt stmts [ret_stmt] pvarset
-     ; let thedo = HsDo DoExpr stmts' placeHolderType
-     ; (bind_op, fvs3) <- lookupStmtName ctxt bindMName
-     ; (fail_op, fvs4) <- lookupStmtName ctxt failMName
-     ; return ( noLoc $ BindStmt ptup (noLoc thedo) bind_op fail_op
-              , fvs1 `plusFV` fvs2 `plusFV` fvs3 `plusFV` fvs4 ) }
+     ; return ( ApplicativeArgMany ptup stmts' placeHolderType
+              , fvs1 `plusFV` fvs2) }
 
 segments
   :: [(LStmt Name (LHsExpr Name), FreeVars)]
@@ -1577,7 +1560,6 @@ pprStmtCat (BindStmt {})      = ptext (sLit "binding")
 pprStmtCat (LetStmt {})       = ptext (sLit "let")
 pprStmtCat (RecStmt {})       = ptext (sLit "rec")
 pprStmtCat (ParStmt {})       = ptext (sLit "parallel")
-pprStmtCat (ApplicativeBindStmt {}) = panic "pprStmtCat: ApplicativeBindStmt"
 pprStmtCat (ApplicativeLastStmt {}) = panic "pprStmtCat: ApplicativeLastStmt"
 
 ------------
@@ -1644,7 +1626,6 @@ okCompStmt dflags _ stmt
          | otherwise -> NotValid (ptext (sLit "Use TransformListComp"))
        RecStmt {}  -> emptyInvalid
        LastStmt {} -> emptyInvalid  -- Should not happen (dealt with by checkLastStmt)
-       ApplicativeBindStmt {} -> emptyInvalid
        ApplicativeLastStmt {} -> emptyInvalid
 
 ----------------
@@ -1659,7 +1640,6 @@ okPArrStmt dflags _ stmt
        TransStmt {} -> emptyInvalid
        RecStmt {}   -> emptyInvalid
        LastStmt {}  -> emptyInvalid  -- Should not happen (dealt with by checkLastStmt)
-       ApplicativeBindStmt {} -> emptyInvalid
        ApplicativeLastStmt {} -> emptyInvalid
 
 ---------

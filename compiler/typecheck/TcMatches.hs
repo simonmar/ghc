@@ -337,7 +337,6 @@ tcStmtsAndThen ctxt stmt_chk (L loc stmt : stmts) res_ty thing_inside
                 thing_inside
         ; return (L loc stmt' : stmts', thing) }
   where
-    isApplicativeStmt ApplicativeBindStmt{} = True
     isApplicativeStmt ApplicativeLastStmt{} = True
     isApplicativeStmt _ = False
 
@@ -779,70 +778,6 @@ tcDoStmt ctxt (BindStmt pat rhs bind_op fail_op) res_ty thing_inside
         ; return (BindStmt pat' rhs' bind_op' fail_op', thing) }
 
 {-
-Note [typechecking ApplicativeBindStmt]
-
-We have a statement like this:
-
-(p1, ..., pn) <- (,) <$> e1 <*>_2 ... <*>_n en
-
-The usual types are:
-<$> :: (a -> b)   -> f a -> f b
-<*> :: f (a -> b) -> f a -> f b
-
-But we want the more general types, for rebindable syntax, so we assume
-<$> :: a -> b -> c
-<*> :: d -> e -> f
-
-The types of the subexpresssions are as follows:
-
-fresh type variables:
-   pat_ty_1..pat_ty_n
-   exp_ty_1..exp_ty_n
-   t_1..t_n
-
-(,)   :: pat_ty_1 -> ... -> pat_ty_n -> tuple_ty
-p_i   :: pat_ty_i
-e_i   :: exp_ty_i
-<$>   :: (pat_ty_1 -> ... -> pat_ty_n -> tuple_ty) -> exp_ty_1 -> t_1
-<*>_i :: t_(i-1) -> exp_ty_i -> t_i
->>=   :: t_n -> (tuple_ty -> new_res_ty) -> res_ty
-
--}
-tcDoStmt ctxt (ApplicativeBindStmt pairs bind_op fail_op)
-         res_ty thing_inside
-  = do  {
-        -- We need to be careful about which order we typecheck things
-        -- in, so that type errors are reported in terms of the
-        -- original syntax rather than the applicative operators.
-        -- When we do a tcSyntaxOp, it should always succeed unless
-        -- we're using RebindableSyntax and the operator in scope has
-        -- an incompatible type.
-        ; let arity = length pairs
-        ; new_res_ty <- newFlexiTyVarTy liftedTypeKind
-        ; pat_tys <- replicateM arity $ newFlexiTyVarTy liftedTypeKind
-        ; ts <- replicateM arity $ newFlexiTyVarTy liftedTypeKind
-        ; let t_n = last ts
-        ; let tuple_ty  = mkBigCoreTupTy pat_tys
-        ; let tuple_con_ty = mkFunTys pat_tys tuple_ty
-        ; let bind_ty = mkFunTys [t_n, mkFunTy tuple_ty new_res_ty] res_ty
-        ; bind_op' <- tcSyntaxOp DoOrigin bind_op bind_ty
-
-        ; (pairs', thing) <-
-            tcApplicativeStmts ctxt (zip3 pairs pat_tys ts) tuple_con_ty
-              (thing_inside new_res_ty)
-
-                -- If (but only if) the pattern can fail,
-                -- typecheck the 'fail' operator
-        ; let pats = [ pat | (L _ (BindStmt pat _ _ _), _) <- pairs' ]
-              tuple_pat = L noSrcSpan (TuplePat pats Boxed [])
-        ; fail_op' <- if isIrrefutableHsPat tuple_pat
-                      then return noSyntaxExpr
-                      else tcSyntaxOp DoOrigin fail_op $
-                             mkFunTy stringTy new_res_ty
-
-        ; return ( ApplicativeBindStmt pairs' bind_op' fail_op', thing) }
-
-{-
 Note [typechecking ApplicativeLastStmt]
 
 join ((\pat1 ... patn -> fun) <$> e1 <*> ... <*> en)
@@ -860,7 +795,7 @@ e_i   :: exp_ty_i
 <*>_i :: t_(i-1) -> exp_ty_i -> t_i
 join :: tn -> res_ty
 -}
-tcDoStmt ctxt (ApplicativeLastStmt fun pairs mb_join _) res_ty thing_inside
+tcDoStmt ctxt (ApplicativeLastStmt body pairs mb_join _) res_ty thing_inside
   = do  {
         ; let arity = length pairs
         ; pat_tys <- replicateM arity $ newFlexiTyVarTy liftedTypeKind
@@ -875,21 +810,30 @@ tcDoStmt ctxt (ApplicativeLastStmt fun pairs mb_join _) res_ty thing_inside
                      (mkFunTy rhs_ty res_ty)
                  ; return (Just join_op', rhs_ty) }
 
-        -- fake a LastStmt for the error context
-        ; let last_stmt  :: ExprStmt Name
-              last_stmt = LastStmt
-                 (if isNothing mb_join
-                    then noLoc (HsApp (noLoc (HsVar returnMName)) fun)
-                    else fun)
-                 noSyntaxExpr
+        ; let
+              tc_body = case body of
+                ApplicativeBodyExpr e ->
+                   do { e' <- addErrCtxt (pprStmtInCtxt ctxt last_stmt) $
+                          tcMonoExprNC e fun_ty
+                      ; thing <- thing_inside (panic "tcDoStmt: thing_inside")
+                      ; return (ApplicativeBodyExpr e', thing) }
+                   where
+                     -- fake a LastStmt for the error context
+                     last_stmt  :: ExprStmt Name
+                     last_stmt = LastStmt
+                          (if isNothing mb_join
+                             then noLoc (HsApp (noLoc (HsVar returnMName)) e)
+                             else e)
+                          noSyntaxExpr
+                ApplicativeBodyStmts stmts ->
+                   do { stmts' <- tcStmts ctxt tcDoStmt stmts fun_ty
+                      ; thing <- thing_inside (panic "tcDoStmt: thing_inside")
+                      ; return (ApplicativeBodyStmts stmts', thing) }
 
-        ; (pairs', (fun', thing)) <-
+        ; (pairs', (body', thing)) <-
             tcApplicativeStmts ctxt (zip3 pairs pat_tys (ts++[rhs_ty])) body_ty
-              (do { fun' <- addErrCtxt (pprStmtInCtxt ctxt last_stmt) $
-                      tcMonoExprNC fun fun_ty
-                  ; thing <- thing_inside (panic "tcDoStmt: thing_inside")
-                  ; return (fun', thing)})
-        ; return ( ApplicativeLastStmt fun' pairs' mb_join' fun_ty, thing) }
+              tc_body
+        ; return ( ApplicativeLastStmt body' pairs' mb_join' fun_ty, thing) }
 
 tcDoStmt _ (BodyStmt rhs then_op _ _) res_ty thing_inside
   = do  {       -- Deal with rebindable syntax;
@@ -960,13 +904,13 @@ the expected/inferred stuff is back to front (see Trac #3613).
 -}
 
 -- | Typecheck the group of statements that we will make into an
--- applicative expression for ApplicativeBindStmt and ApplicativeLastStmt
+-- applicative expression for ApplicativeLastStmt
 tcApplicativeStmts
   :: HsStmtContext Name
-  -> [((LStmt Name (LHsExpr Name), HsExpr Name), TcSigmaType, Type)]
+  -> [((ApplicativeArg Name, HsExpr Name), TcSigmaType, Type)]
   -> Type
   -> TcM t
-  -> TcM ([(LStmt TcId (LHsExpr TcId), HsExpr TcId)], t)
+  -> TcM ([(ApplicativeArg TcId, HsExpr TcId)], t)
 
 tcApplicativeStmts ctxt stmts ty thing_inside = go stmts ty
   where
@@ -974,7 +918,8 @@ tcApplicativeStmts ctxt stmts ty thing_inside = go stmts ty
       = do { thing <- thing_inside
            ; return ([],thing)
            }
-    go (((L loc stmt@(BindStmt pat rhs _ _),op),pat_ty,t_i) : rest)
+    go (( (ApplicativeArgOne (L loc stmt@(BindStmt pat rhs _ _)), op)
+        , pat_ty, t_i) : rest)
       t_left
       = do { exp_ty <- newFlexiTyVarTy liftedTypeKind
            ; ap_op <- tcSyntaxOp DoOrigin op
@@ -987,9 +932,23 @@ tcApplicativeStmts ctxt stmts ty thing_inside = go stmts ty
                       go rest t_i
                   ; let stmt' = BindStmt pat' rhs'
                                   noSyntaxExpr noSyntaxExpr
-                  ; return ((L loc stmt', ap_op) : pairs, thing)
-                  }
+                  ; return ( (ApplicativeArgOne (L loc stmt'), ap_op) : pairs
+                           , thing) }
            }
+
+    go (( (ApplicativeArgMany pat stmts _, op), pat_ty, t_i) : rest) t_left
+      = do { exp_ty <- newFlexiTyVarTy liftedTypeKind
+           ; ap_op <- tcSyntaxOp DoOrigin op
+                         (mkFunTys [t_left, exp_ty] t_i)
+           ; do { stmts' <- tcStmts ctxt tcDoStmt stmts exp_ty
+                ; (pat',(pairs, thing)) <-
+                      tcPat (StmtCtxt ctxt) pat pat_ty $
+                      popErrCtxt $
+                      go rest t_i
+                ; return ( (ApplicativeArgMany pat' stmts' exp_ty, ap_op)
+                              : pairs, thing) }
+           }
+
     go (((stmt,_),_,_) : _) _ = pprPanic "tcDoStmt(ApplicativeStmt)" (ppr stmt)
 
 {-
