@@ -61,6 +61,7 @@ const RtsConfig defaultRtsConfig  = {
     .rts_opts_enabled = RtsOptsSafeOnly,
     .rts_opts = NULL,
     .rts_hs_main = rtsFalse,
+    .keep_cafs = rtsFalse,
     .defaultsHook = FlagDefaultsHook,
     .onExitHook = OnExitHook,
     .stackOverflowHook = StackOverflowHook,
