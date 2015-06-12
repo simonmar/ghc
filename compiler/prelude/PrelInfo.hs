@@ -40,8 +40,7 @@ import {-# SOURCE #-} TcTypeNats ( typeNatTyCons )
 
 import Data.Array
 
-{-
-************************************************************************
+{- *********************************************************************
 *                                                                      *
 \subsection[builtinNameInfo]{Lookup built-in names}
 *                                                                      *
