@@ -260,6 +260,34 @@ static void machoInitSymbolsWithoutUnderscore( void );
 
 static void freeProddableBlocks (ObjectCode *oc);
 
+#ifdef USE_MMAP
+/**
+ * An allocated page being filled by the allocator
+ */
+struct m32_alloc_t {
+   void * base_addr;             // Page address
+   unsigned int current_size;    // Number of bytes already reserved
+};
+
+#define M32_MAX_PAGES 32
+
+/**
+ * Allocator
+ *
+ * Currently an allocator is just a set of pages being filled. The maximum
+ * number of pages can be configured with M32_MAX_PAGES.
+ */
+typedef struct m32_allocator_t {
+   struct m32_alloc_t pages[M32_MAX_PAGES];
+} * m32_allocator;
+
+// We use a global memory allocator
+static struct m32_allocator_t allocator;
+
+struct m32_allocator_t;
+static void m32_allocator_init(struct m32_allocator_t *m32);
+#endif
+
 /* on x86_64 we have a problem with relocating symbol references in
  * code that was compiled without -fPIC.  By default, the small memory
  * model is used, which assumes that symbol references can fit in a
@@ -1739,6 +1767,8 @@ initLinker_ (int retain_cafs)
     addDLLHandle(WSTR("*.exe"), GetModuleHandle(NULL));
 #endif
 
+    m32_allocator_init(&allocator);
+
     IF_DEBUG(linker, debugBelch("initLinker: done\n"));
     return;
 }
@@ -2209,20 +2239,24 @@ void ghci_enquire ( char* addr )
 #define ROUND_UP(x,size) ((x + size - 1) & ~(size - 1))
 #define ROUND_DOWN(x,size) (x & ~(size - 1))
 
-static StgWord pagesize = 0;
+static StgWord getPageSize(void)
+{
+    static StgWord pagesize = 0;
+    if (pagesize == 0) {
+        return sysconf(_SC_PAGESIZE);
+    } else {
+        return pagesize;
+    }
+}
 
 static StgWord roundUpToPage (StgWord size)
 {
-    if (pagesize == 0)
-        pagesize = getpagesize();
-    return ROUND_UP(size, pagesize);
+    return ROUND_UP(size, getPageSize());
 }
 
 static StgWord roundDownToPage (StgWord size)
 {
-    if (pagesize == 0)
-        pagesize = getpagesize();
-    return ROUND_DOWN(size, pagesize);
+    return ROUND_DOWN(size, getPageSize());
 }
 
 //
@@ -2317,6 +2351,211 @@ mmap_again:
 
    return result;
 }
+
+/*
+
+Note [M32 Allocator]
+~~~~~~~~~~~~~~~~~~~~
+
+A memory allocator that allocates only pages in the 32-bit range (lower 2GB).
+This is useful on 64-bit platforms to ensure that addresses of allocated
+objects can be referenced with a 32-bit relative offset.
+
+Initially, the linker used `mmap` to allocate a page per object. Hence it
+wasted a lot of space for small objects (see #9314). With this allocator, we
+try to fill pages as much as we can for small objects.
+
+How does it work?
+-----------------
+
+For small objects, a Word64 counter is added at the beginning of the page they
+are stored in. It indicates the number of objects that are still alive in the
+page. When the counter drops down to zero, the page is freed. The counter is
+atomically decremented, hence the deallocation is thread-safe.
+
+During the allocation phase, the allocator keeps track of some pages that are
+not totally filled: the number of pages in the "filling" list is configurable
+with M32_MAX_PAGES. Allocation consists in finding some place in one of these
+pages or starting a new one, then increasing the page counter. If none of the
+pages in the "filling" list has enough free space, the most filled one is
+flushed (see below) and a new one is allocated.
+
+The allocator holds a reference on pages in the "filling" list: the counter in
+these pages is 1+n where n is the current number of objects allocated in the
+page. Hence allocated objects can be freed while the allocator is using
+(filling) the page. Flushing a page consists in decreasing its counter and
+removing it from the "filling" list. By extension, flushing the allocator
+consists in flushing all the pages in the "filling" list.  Don't forget to
+flush the allocator at the end of the allocation phase in order to avoid space
+leaks!
+
+Large objects are objects that are larger than a page (minus the bytes required
+for the counter and the optional padding). These objects are allocated into
+their own set of pages.  We can differentiate large and small objects from
+their address: large objects are aligned on page size while small objects never
+are (because of the space reserved for the page's object counter).
+
+For large objects, the remaining space at the end of the last page is left
+unused by the allocator. It can be used with care as it will be freed with the
+associated large object. GHC linker uses this feature/hack, hence changing the
+implementation of the M32 allocator must be done with care (i.e. do not try to
+improve the allocator to avoid wasting this space without modifying the linker
+code accordingly).
+
+Object allocation is *not* thread-safe (however it could be done easily with a
+lock in the allocator structure). Object deallocation is thread-safe.
+
+*/
+
+/****************************************************************************
+ * M32 ALLOCATOR (see Note [M32 Allocator]
+ ***************************************************************************/
+
+/**
+ * Wrapper for `unmap` that handles error cases.
+ */
+static void munmapForLinker (void * addr, size_t size)
+{
+   int r = munmap(addr,size);
+   if (r == -1) {
+      // Should we abort here?
+      sysErrorBelch("munmap");
+   }
+}
+
+/**
+ * Initialize the allocator structure
+ */
+static void m32_allocator_init(m32_allocator m32) {
+   memset(m32, 0, sizeof(struct m32_allocator_t));
+}
+
+/**
+ * Atomically decrement the object counter on the given page and release the
+ * page if necessary. The given address must be the *base address* of the page.
+ *
+ * You shouldn't have to use this method. Use `m32_free` instead.
+ */
+static void m32_free_internal(void * addr) {
+   uint64_t c = __sync_sub_and_fetch((uint64_t*)addr, 1);
+   if (c == 0) {
+      munmapForLinker(addr, getPageSize());
+   }
+}
+
+/**
+ * Release the allocator's reference to pages on the "filling" list. This
+ * should be called when it is believed that no more allocations will be needed
+ * from the allocator to ensure that empty pages waiting to be filled aren't
+ * unnecessarily held.
+ */
+static void m32_allocator_flush(m32_allocator m32) {
+   int i;
+   for (i=0; i<M32_MAX_PAGES; i++) {
+      void * addr =  __sync_fetch_and_and(&m32->pages[i].base_addr, 0x0);
+      if (addr != 0) {
+         m32_free_internal(addr);
+      }
+   }
+}
+
+// Return true if the object has its own dedicated set of pages
+#define m32_is_large_object(size,alignment) \
+   (size >= getPageSize() - ROUND_UP(8,alignment))
+
+// Return true if the object has its own dedicated set of pages
+#define m32_is_large_object_addr(addr) \
+   ((uintptr_t) addr % getPageSize() == 0)
+
+/**
+ * Free the memory associated with an object.
+ *
+ * If the object is "small", the object counter of the page it is allocated in
+ * is decremented and the page is not freed until all of its objects are freed.
+ */
+static void m32_free(void *addr, unsigned int size) {
+   uintptr_t m = (uintptr_t) addr % getPageSize();
+
+   if (m == 0) {
+      // large object
+      munmapForLinker(addr,ROUND_UP(size,getPageSize()));
+   }
+   else {
+      // small object
+      void * page_addr = (void*)((uintptr_t)addr - m);
+      m32_free_internal(page_addr);
+   }
+}
+
+/**
+ * Allocate `size` bytes of memory with the given alignment
+ */
+static void *
+m32_alloc(m32_allocator m32, unsigned int size,
+          unsigned int alignment) {
+
+   unsigned int pgsz = (unsigned int)getPageSize();
+
+   if (m32_is_large_object(size,alignment)) {
+       // large object
+       return mmapForLinker(size,MAP_ANONYMOUS,-1,0);
+   }
+   else {
+      // small object
+      // Try to find a page that can contain it
+      int empty = -1;
+      int most_filled = -1;
+      int i;
+      for (i=0; i<M32_MAX_PAGES; i++) {
+         // empty page
+         if (m32->pages[i].base_addr == 0) {
+            empty = empty == -1 ? i : empty;
+            continue;
+         }
+         // page can contain the buffer?
+         unsigned int alsize = ROUND_UP(m32->pages[i].current_size, alignment);
+         if (size <= pgsz - alsize) {
+            void * addr = (char*)m32->pages[i].base_addr + alsize;
+            m32->pages[i].current_size = alsize + size;
+            // increment the counter atomically
+            __sync_fetch_and_add((uint64_t*)m32->pages[i].base_addr, 1);
+            return addr;
+         }
+         // most filled?
+         if (most_filled == -1
+          || m32->pages[most_filled].current_size < m32->pages[i].current_size)
+         {
+            most_filled = i;
+         }
+      }
+
+      // If we haven't found an empty page, flush the most filled one
+      if (empty == -1) {
+         m32_free_internal(m32->pages[most_filled].base_addr);
+         m32->pages[most_filled].base_addr    = 0;
+         m32->pages[most_filled].current_size = 0;
+         empty = most_filled;
+      }
+
+      // Allocate a new page
+      void * addr = mmapForLinker(pgsz,MAP_ANONYMOUS,-1,0);
+      if (addr == NULL) {
+         return NULL;
+      }
+      m32->pages[empty].base_addr    = addr;
+      // Add 8 bytes for the counter + padding
+      m32->pages[empty].current_size = size+ROUND_UP(8,alignment);
+      // Initialize the counter:
+      // 1 for the allocator + 1 for the returned allocated memory
+      *((uint64_t*)addr)             = 2;
+      return (char*)addr + ROUND_UP(8,alignment);
+   }
+}
+
+/****************************************************************************
+ * END (M32 ALLOCATOR)
+ ***************************************************************************/
+
 #endif // USE_MMAP
 
 /*
@@ -2414,6 +2653,10 @@ void freeObjectCode (ObjectCode *oc)
                     munmap(oc->sections[i].mapped_start,
                            oc->sections[i].mapped_size);
                     break;
+                case SECTION_M32:
+                    m32_free(oc->sections[i].start,
+                             oc->sections[i].size);
+                    break;
 #endif
                 case SECTION_MALLOC:
                     stgFree(oc->sections[i].start);
@@ -2434,8 +2677,7 @@ void freeObjectCode (ObjectCode *oc)
 #ifdef USE_MMAP
     if (!USE_CONTIGUOUS_MMAP && oc->symbol_extras != NULL)
     {
-        munmap(oc->symbol_extras,
-               roundUpToPage(sizeof(SymbolExtra) * oc->n_symbol_extras));
+        m32_free(oc->symbol_extras, sizeof(SymbolExtra) * oc->n_symbol_extras);
     }
 #else // !USE_MMAP
     stgFree(oc->symbol_extras);
@@ -2975,6 +3217,10 @@ static HsInt loadArchive_ (pathchar *path)
 #endif
     }
 
+#ifdef USE_MMAP
+    m32_allocator_flush(&allocator);
+#endif
+
     IF_DEBUG(linker, debugBelch("loadArchive: done\n"));
     return 1;
 }
@@ -3468,8 +3714,8 @@ static int ocAllocateSymbolExtras( ObjectCode* oc, int count, int first )
     }
     else
     {
-        oc->symbol_extras = mmapForLinker(sizeof(SymbolExtra) * count,
-                                          MAP_ANONYMOUS, -1, 0);
+        oc->symbol_extras = m32_alloc(&allocator,
+                                      sizeof(SymbolExtra) * count, 8);
         if (oc->symbol_extras == NULL) return 0;
     }
 #else
@@ -5383,55 +5629,22 @@ static int getSectionKind_ELF( Elf_Shdr *hdr, int *is_bss )
     return SECTIONKIND_OTHER;
 }
 
-/*
- * Check to see whether we've already mmapped() the memory for this section
- * with another section.  For very small object files we can get multiple
- * sections in the same page, so this avoids making multiple mappings.
- */
 static void *
-maybeShareSection (Section *sections, int secno, Elf_Word offset, Elf_Word size)
-{
-    int i;
-    for (i = 0; i < secno; i++) {
-        StgWord start = sections[i].mapped_offset;
-        StgWord end = start + sections[i].mapped_size;
-        if (start <= offset && end >= offset + size) {
-            return (void*)((StgWord)sections[i].mapped_start +
-                           (offset - sections[i].mapped_offset));
-        }
-    }
-    return NULL;
-}
-
-static void *
-mapObjectFileSection (int fd, ObjectCode *oc, Elf_Word offset, Elf_Word size,
+mapObjectFileSection (int fd, Elf_Word offset, Elf_Word size,
                       void **mapped_start, StgWord *mapped_size,
                       StgWord *mapped_offset)
 {
     void *p;
     StgWord pageOffset, pageSize;
 
-    if (oc->imageMapped) {
-        pageOffset = roundDownToPage(offset);
-        pageSize = roundUpToPage(offset-pageOffset+size);
-        p = mmapForLinker(pageSize, 0, fd, pageOffset);
-        if (p == NULL) return NULL;
-        *mapped_size = pageSize;
-        *mapped_offset = pageOffset;
-        *mapped_start = p;
-        return (void*)((StgWord)p + offset - pageOffset);
-    } else {
-        pageSize = roundUpToPage(size);
-        p = mmapForLinker(pageSize, MAP_ANONYMOUS, -1, 0);
-        if (p == NULL) return NULL;
-        *mapped_size = stg_min(pageSize, oc->fileSize - offset);
-        *mapped_offset = offset;
-        *mapped_start = p;
-        // copy the full rounded-up pageSize, we might be able to share this
-        // mapping with another section.
-        memcpy(p, oc->image + offset, *mapped_size);
-        return p;
-    }
+    pageOffset = roundDownToPage(offset);
+    pageSize = roundUpToPage(offset-pageOffset+size);
+    p = mmapForLinker(pageSize, 0, fd, pageOffset);
+    if (p == NULL) return NULL;
+    *mapped_size = pageSize;
+    *mapped_offset = pageOffset;
+    *mapped_start = p;
+    return (void*)((StgWord)p + offset - pageOffset);
 }
 
 static int
@@ -5472,13 +5685,15 @@ ocGetNames_ELF ( ObjectCode* oc )
       SectionAlloc alloc = SECTION_NOMEM;
       void *start = NULL, *mapped_start = NULL;
       StgWord mapped_size = 0, mapped_offset = 0;
+      StgWord size = shdr[i].sh_size;
+      StgWord offset = shdr[i].sh_offset;
 
-      if (is_bss && shdr[i].sh_size > 0) {
+      if (is_bss && size > 0) {
          /* This is a non-empty .bss section.  Allocate zeroed space for
             it, and set its .sh_offset field such that
             ehdrC + .sh_offset == addr_of_zeroed_space.  */
           alloc = SECTION_MALLOC;
-          start = stgCallocBytes(1, shdr[i].sh_size, "ocGetNames_ELF(BSS)");
+          start = stgCallocBytes(1, size, "ocGetNames_ELF(BSS)");
           mapped_start = start;
          /*
          debugBelch("BSS section at 0x%x, size %d\n",
@@ -5486,28 +5701,30 @@ ocGetNames_ELF ( ObjectCode* oc )
          */
       }
 
-      /* fill in the section info */
-      else if (kind != SECTIONKIND_OTHER && shdr[i].sh_size > 0) {
-          start = maybeShareSection(sections, i,
-                                    shdr[i].sh_offset, shdr[i].sh_size);
-          if (!start) {
-              alloc = SECTION_MMAP;
-              start = mapObjectFileSection(fd, oc,
-                                           shdr[i].sh_offset, shdr[i].sh_size,
+      else if (kind != SECTIONKIND_OTHER && size > 0) {
+          // use the m32 allocator if we have to
+          if (!oc->imageMapped || size < getPageSize() / 3) {
+              start = m32_alloc(&allocator, size, 8);
+              if (start == NULL) goto fail;
+              memcpy(start, oc->image + offset, size);
+              alloc = SECTION_M32;
+          } else {
+              start = mapObjectFileSection(fd, offset, size,
                                            &mapped_start, &mapped_size,
                                            &mapped_offset);
               if (start == NULL) goto fail;
+              alloc = SECTION_MMAP;
           }
-          addProddableBlock(oc, ehdrC + shdr[i].sh_offset, shdr[i].sh_size);
+          addProddableBlock(oc, ehdrC + offset, size);
       }
 
-      addSection(&sections[i], kind, alloc, start, shdr[i].sh_size,
+      addSection(&sections[i], kind, alloc, start, size,
                  mapped_offset, mapped_start, mapped_size);
 
       if (shdr[i].sh_type != SHT_SYMTAB) continue;
 
       /* copy stuff into this module's object symbol table */
-      stab = (Elf_Sym*) (ehdrC + shdr[i].sh_offset);
+      stab = (Elf_Sym*) (ehdrC + offset);
       strtab = ehdrC + shdr[shdr[i].sh_link].sh_offset;
       nent = shdr[i].sh_size / sizeof(Elf_Sym);
 

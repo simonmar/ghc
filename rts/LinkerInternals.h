@@ -29,6 +29,7 @@ typedef
 
 typedef
    enum { SECTION_NOMEM,
+          SECTION_M32,
           SECTION_MMAP,
           SECTION_MALLOC,
         }

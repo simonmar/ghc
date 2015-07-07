@@ -4,7 +4,7 @@
 #include "Rts.h"
 #include <string.h>
 
-#define ITERATIONS 1000
+#define ITERATIONS 10
 
 #if defined(mingw32_HOST_OS)
 #define OBJPATH L"Test.o"
