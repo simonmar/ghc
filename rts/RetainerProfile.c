@@ -1881,7 +1881,7 @@ resetStaticObjectForRetainerProfiling( StgClosure *static_objects )
     count = 0;
 #endif
     p = static_objects;
-    while (p != END_OF_STATIC_LIST) {
+    while (p != static_flag) {
 #ifdef DEBUG_RETAINER
         count++;
 #endif

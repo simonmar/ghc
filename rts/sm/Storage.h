@@ -133,9 +133,31 @@ W_    calcLiveWords  (void);
 
 extern bdescr *exec_block;
 
-#define END_OF_STATIC_LIST ((StgClosure*)1)
-
 void move_STACK  (StgStack *src, StgStack *dest);
+
+/* -----------------------------------------------------------------------------
+   STATIC_LINK fields
+
+   The low 2 bits of the static link field have the following meaning:
+
+   0:   we haven't seen this static object before
+   1:   on a list (e.g. debug_caf_list); ignore it during GC
+   2/3: if it equals static_flag, then we saw it in this GC, otherwise
+        we saw it in the previous GC.
+  -------------------------------------------------------------------------- */
+
+#define STATIC_BITS 3
+
+#define STATIC_FLAG_LIST 1
+#define STATIC_FLAG_A 2
+#define STATIC_FLAG_B 3
+
+#define END_OF_CAF_LIST ((StgClosure*)STATIC_FLAG_LIST)
+#define END_OF_STATIC_OBJECT_LIST ((StgClosure*)(StgWord)static_flag)
+
+#define UNTAG_STATIC_LIST_PTR(p) ((StgClosure*)((StgWord)(p) & ~STATIC_BITS))
+
+extern nat prev_static_flag, static_flag;
 
 /* -----------------------------------------------------------------------------
    CAF lists
