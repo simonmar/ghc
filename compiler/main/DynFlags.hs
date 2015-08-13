@@ -566,6 +566,7 @@ data ExtensionFlag
    | Opt_ForeignFunctionInterface
    | Opt_UnliftedFFITypes
    | Opt_InterruptibleFFI
+   | Opt_NonblockingFFI
    | Opt_CApiFFI
    | Opt_GHCForeignImportPrim
    | Opt_JavaScriptFFI
@@ -3125,6 +3126,7 @@ xFlags = [
   flagSpec "InstanceSigs"                     Opt_InstanceSigs,
   flagSpec "ApplicativeDo"                    Opt_ApplicativeDo,
   flagSpec "InterruptibleFFI"                 Opt_InterruptibleFFI,
+  flagSpec "NonblockingFFI"                   Opt_NonblockingFFI,
   flagSpec "JavaScriptFFI"                    Opt_JavaScriptFFI,
   flagSpec "KindSignatures"                   Opt_KindSignatures,
   flagSpec "LambdaCase"                       Opt_LambdaCase,

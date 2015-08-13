@@ -547,6 +547,17 @@ releaseAndWakeupCapability (Capability* cap USED_IF_THREADS)
     RELEASE_LOCK(&cap->lock);
 }
 
+void
+fastReleaseCapability (Capability *cap)
+{
+    if (!emptyInbox(cap) || globalWorkToDo()) {
+        releaseCapability(cap);
+    } else {
+        write_barrier();
+        cap->running_task = NULL;
+    }
+}
+
 static void
 enqueueWorker (Capability* cap USED_IF_THREADS)
 {

@@ -201,16 +201,18 @@ void moreCapabilities (nat from, nat to);
 // ASSUMES: cap->running_task is the current Task.
 //
 #if defined(THREADED_RTS)
-void releaseCapability           (Capability* cap);
-void releaseAndWakeupCapability  (Capability* cap);
+void releaseCapability (Capability* cap);
+void releaseAndWakeupCapability (Capability* cap);
 void releaseCapability_ (Capability* cap, rtsBool always_wakeup);
 // assumes cap->lock is held
+void fastReleaseCapability (Capability *cap);
 #else
 // releaseCapability() is empty in non-threaded RTS
 INLINE_HEADER void releaseCapability  (Capability* cap STG_UNUSED) {};
 INLINE_HEADER void releaseAndWakeupCapability  (Capability* cap STG_UNUSED) {};
 INLINE_HEADER void releaseCapability_ (Capability* cap STG_UNUSED,
                                        rtsBool always_wakeup STG_UNUSED) {};
+INLINE_HEADER void fastReleaseCapability (Capability *cap STG_UNUSED) {};
 #endif
 
 // declared in includes/rts/Threads.h:

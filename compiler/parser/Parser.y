@@ -350,6 +350,7 @@ for some background.
  'dynamic'      { L _ ITdynamic }
  'safe'         { L _ ITsafe }
  'interruptible' { L _ ITinterruptible }
+ 'nonblocking'  { L _ ITnonblocking }
  'unsafe'       { L _ ITunsafe }
  'mdo'          { L _ ITmdo }
  'family'       { L _ ITfamily }
@@ -1456,6 +1457,7 @@ safety :: { Located Safety }
         : 'unsafe'                      { sLL $1 $> PlayRisky }
         | 'safe'                        { sLL $1 $> PlaySafe }
         | 'interruptible'               { sLL $1 $> PlayInterruptible }
+        | 'nonblocking'                 { sLL $1 $> PlayNonblocking }
 
 fspec :: { Located ([AddAnn]
                     ,(Located StringLiteral, Located RdrName, LHsType RdrName)) }
@@ -2920,6 +2922,7 @@ tyvarid :: { Located RdrName }
         | 'unsafe'         { sL1 $1 $! mkUnqual tvName (fsLit "unsafe") }
         | 'safe'           { sL1 $1 $! mkUnqual tvName (fsLit "safe") }
         | 'interruptible'  { sL1 $1 $! mkUnqual tvName (fsLit "interruptible") }
+        | 'nonblocking'    { sL1 $1 $! mkUnqual tvName (fsLit "nonblocking") }
 
 -----------------------------------------------------------------------------
 -- Variables
@@ -2952,6 +2955,7 @@ varid :: { Located RdrName }
         | 'unsafe'         { sL1 $1 $! mkUnqual varName (fsLit "unsafe") }
         | 'safe'           { sL1 $1 $! mkUnqual varName (fsLit "safe") }
         | 'interruptible'  { sL1 $1 $! mkUnqual varName (fsLit "interruptible")}
+        | 'nonblocking'    { sL1 $1 $! mkUnqual varName (fsLit "nonblocking")}
         | 'forall'         { sL1 $1 $! mkUnqual varName (fsLit "forall") }
         | 'family'         { sL1 $1 $! mkUnqual varName (fsLit "family") }
         | 'role'           { sL1 $1 $! mkUnqual varName (fsLit "role") }
@@ -2978,8 +2982,8 @@ varsym_no_minus :: { Located RdrName } -- varsym not including '-'
 
 -- These special_ids are treated as keywords in various places,
 -- but as ordinary ids elsewhere.   'special_id' collects all these
--- except 'unsafe', 'interruptible', 'forall', 'family', and 'role',
--- whose treatment differs depending on context
+-- except 'unsafe', 'interruptible', 'nonblocking', 'forall', 'family',
+-- and 'role', whose treatment differs depending on context
 special_id :: { Located FastString }
 special_id
         : 'as'                  { sL1 $1 (fsLit "as") }

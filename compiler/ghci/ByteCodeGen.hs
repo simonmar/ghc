@@ -1076,7 +1076,7 @@ generateCCall d0 s p (CCallSpec target cconv safety) fn args_r_to_l
      let
          -- do the call
          do_call      = unitOL (CCALL stk_offset (castFunPtrToPtr addr_of_marshaller)
-                                 (fromIntegral (fromEnum (playInterruptible safety))))
+                                 (fromIntegral (safeFlag safety)))
          -- slide and return
          wrapup       = mkSLIDE r_sizeW (d_after_r - fromIntegral r_sizeW - s)
                         `snocOL` RETURN_UBX (toArgRep r_rep)

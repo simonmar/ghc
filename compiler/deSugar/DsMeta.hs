@@ -549,6 +549,7 @@ repCCallConv JavaScriptCallConv = rep2 javaScriptCallName []
 repSafety :: Safety -> DsM (Core TH.Safety)
 repSafety PlayRisky = rep2 unsafeName []
 repSafety PlayInterruptible = rep2 interruptibleName []
+repSafety PlayNonblocking = rep2 nonblockingName []
 repSafety PlaySafe = rep2 safeName []
 
 repFixD :: LFixitySig Name -> DsM [(SrcSpan, Core TH.DecQ)]

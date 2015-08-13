@@ -300,4 +300,7 @@
 
 #define MAX_SPARE_WORKERS 6
 
+#define SafeInterruptible 1
+#define SafeNonBlocking 2
+
 #endif /* RTS_CONSTANTS_H */

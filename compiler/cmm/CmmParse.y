@@ -366,9 +366,9 @@ cmm     :: { CmmParse () }
 cmmtop  :: { CmmParse () }
         : cmmproc                       { $1 }
         | cmmdata                       { $1 }
-        | decl                          { $1 } 
-        | 'CLOSURE' '(' NAME ',' NAME lits ')' ';'  
-                {% withThisPackage $ \pkg -> 
+        | decl                          { $1 }
+        | 'CLOSURE' '(' NAME ',' NAME lits ')' ';'
+                {% withThisPackage $ \pkg ->
                    do lits <- sequence $6;
                       staticClosure pkg $3 $5 (map getLit lits) }
 
@@ -382,20 +382,20 @@ cmmtop  :: { CmmParse () }
 --      * we can derive closure and info table labels from a single NAME
 
 cmmdata :: { CmmParse () }
-        : 'section' STRING '{' data_label statics '}' 
+        : 'section' STRING '{' data_label statics '}'
                 { do lbl <- $4;
                      ss <- sequence $5;
                      code (emitDecl (CmmData (section $2) (Statics lbl $ concat ss))) }
 
 data_label :: { CmmParse CLabel }
-    : NAME ':'  
-                {% withThisPackage $ \pkg -> 
+    : NAME ':'
+                {% withThisPackage $ \pkg ->
                    return (mkCmmDataLabel pkg $1) }
 
 statics :: { [CmmParse [CmmStatic]] }
         : {- empty -}                   { [] }
         | static statics                { $1 : $2 }
-    
+
 -- Strings aren't used much in the RTS HC code, so it doesn't seem
 -- worth allowing inline strings.  C-- doesn't allow them anyway.
 static  :: { CmmParse [CmmStatic] }
@@ -404,10 +404,10 @@ static  :: { CmmParse [CmmStatic] }
         | type ';'                      { return [CmmUninitialised
                                                         (widthInBytes (typeWidth $1))] }
         | 'bits8' '[' ']' STRING ';'    { return [mkString $4] }
-        | 'bits8' '[' INT ']' ';'       { return [CmmUninitialised 
+        | 'bits8' '[' INT ']' ';'       { return [CmmUninitialised
                                                         (fromIntegral $3)] }
-        | typenot8 '[' INT ']' ';'      { return [CmmUninitialised 
-                                                (widthInBytes (typeWidth $1) * 
+        | typenot8 '[' INT ']' ';'      { return [CmmUninitialised
+                                                (widthInBytes (typeWidth $1) *
                                                         fromIntegral $3)] }
         | 'CLOSURE' '(' NAME lits ')'
                 { do { lits <- sequence $4
@@ -468,10 +468,10 @@ info    :: { CmmParse (CLabel, Maybe CmmInfoTable, [LocalReg]) }
                                            , cit_rep = rep
                                            , cit_prof = prof, cit_srt = NoC_SRT },
                               []) }
-        
+
         | 'INFO_TABLE_FUN' '(' NAME ',' INT ',' INT ',' INT ',' STRING ',' STRING ',' INT ')'
                 -- ptrs, nptrs, closure type, description, type, fun type
-                {% withThisPackage $ \pkg -> 
+                {% withThisPackage $ \pkg ->
                    do dflags <- getDynFlags
                       let prof = profilingInfo dflags $11 $13
                           ty   = Fun 0 (ArgSpec (fromIntegral $15))
@@ -505,7 +505,7 @@ info    :: { CmmParse (CLabel, Maybe CmmInfoTable, [LocalReg]) }
 
                      -- If profiling is on, this string gets duplicated,
                      -- but that's the way the old code did it we can fix it some other time.
-        
+
         | 'INFO_TABLE_SELECTOR' '(' NAME ',' INT ',' INT ',' STRING ',' STRING ')'
                 -- selector, closure type, description, type
                 {% withThisPackage $ \pkg ->
@@ -568,7 +568,7 @@ importName
 
         -- A label imported without an explicit packageId.
         --      These are taken to come frome some foreign, unnamed package.
-        : NAME  
+        : NAME
         { ($1, mkForeignLabel $1 Nothing ForeignLabelInExternalPackage IsFunction) }
 
         -- as previous 'NAME', but 'IsData'
@@ -578,8 +578,8 @@ importName
         -- A label imported with an explicit packageId.
         | STRING NAME
         { ($2, mkCmmCodeLabel (fsToUnitId (mkFastString $1)) $2) }
-        
-        
+
+
 names   :: { [FastString] }
         : NAME                          { [$1] }
         | NAME ',' names                { $1 : $3 }
@@ -629,7 +629,7 @@ stmt    :: { CmmParse () }
                 { doCall $6 $2 $8 }
         | 'if' bool_expr 'goto' NAME
                 { do l <- lookupLabel $4; cmmRawIf $2 l }
-        | 'if' bool_expr '{' body '}' else      
+        | 'if' bool_expr '{' body '}' else
                 { cmmIfThenElse $2 (withSourceNote $3 $5 $4) $6 }
         | 'push' '(' exprs0 ')' maybe_body
                 { pushStackFrame $3 $5 }
@@ -650,9 +650,9 @@ bool_expr :: { CmmParse BoolExpr }
         | expr                          { do e <- $1; return (BoolTest e) }
 
 bool_op :: { CmmParse BoolExpr }
-        : bool_expr '&&' bool_expr      { do e1 <- $1; e2 <- $3; 
+        : bool_expr '&&' bool_expr      { do e1 <- $1; e2 <- $3;
                                           return (BoolAnd e1 e2) }
-        | bool_expr '||' bool_expr      { do e1 <- $1; e2 <- $3; 
+        | bool_expr '||' bool_expr      { do e1 <- $1; e2 <- $3;
                                           return (BoolOr e1 e2)  }
         | '!' bool_expr                 { do e <- $2; return (BoolNot e) }
         | '(' bool_op ')'               { $2 }
@@ -732,7 +732,7 @@ expr    :: { CmmParse CmmExpr }
 expr0   :: { CmmParse CmmExpr }
         : INT   maybe_ty         { return (CmmLit (CmmInt $1 (typeWidth $2))) }
         | FLOAT maybe_ty         { return (CmmLit (CmmFloat $1 (typeWidth $2))) }
-        | STRING                 { do s <- code (newStringCLit $1); 
+        | STRING                 { do s <- code (newStringCLit $1);
                                       return (CmmLit s) }
         | reg                    { $1 }
         | type '[' expr ']'      { do e <- $3; return (CmmLoad e $1) }
@@ -790,14 +790,14 @@ foreign_formal :: { CmmParse (LocalReg, ForeignHint) }
 local_lreg :: { CmmParse LocalReg }
         : NAME                  { do e <- lookupName $1;
                                      return $
-                                       case e of 
+                                       case e of
                                         CmmReg (CmmLocal r) -> r
                                         other -> pprPanic "CmmParse:" (ftext $1 <> text " not a local register") }
 
 lreg    :: { CmmParse CmmReg }
         : NAME                  { do e <- lookupName $1;
                                      return $
-                                       case e of 
+                                       case e of
                                         CmmReg r -> r
                                         other -> pprPanic "CmmParse:" (ftext $1 <> text " not a register") }
         | GLOBALREG             { return (CmmGlobal $1) }
@@ -1006,6 +1006,7 @@ parseSafety :: String -> P Safety
 parseSafety "safe"   = return PlaySafe
 parseSafety "unsafe" = return PlayRisky
 parseSafety "interruptible" = return PlayInterruptible
+parseSafety "nonblocking" = return PlayNonblocking
 parseSafety str      = fail ("unrecognised safety: " ++ str)
 
 parseCmmHint :: String -> P ForeignHint
@@ -1327,7 +1328,7 @@ doSwitch :: Maybe (Integer,Integer)
 doSwitch mb_range scrut arms deflt
    = do
         -- Compile code for the default branch
-        dflt_entry <- 
+        dflt_entry <-
                 case deflt of
                   Nothing -> return Nothing
                   Just e  -> do b <- forkLabelledCode e; return (Just b)

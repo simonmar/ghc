@@ -727,10 +727,11 @@ javaScript = JavaScript
 -------------------------------------------------------------------------------
 -- *   Safety
 
-unsafe, safe, interruptible :: Safety
+unsafe, safe, interruptible, nonblocking :: Safety
 unsafe = Unsafe
 safe = Safe
 interruptible = Interruptible
+nonblocking = Nonblocking
 
 -------------------------------------------------------------------------------
 -- *   FunDep

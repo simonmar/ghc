@@ -851,17 +851,17 @@ areaToSp dflags sp_old _sp_hwm area_off (CmmStackSlot area n)
   = cmmOffset dflags (CmmReg spReg) (sp_old - area_off area - n)
     -- Replace (CmmStackSlot area n) with an offset from Sp
 
-areaToSp dflags _ sp_hwm _ (CmmLit CmmHighStackMark) 
+areaToSp dflags _ sp_hwm _ (CmmLit CmmHighStackMark)
   = mkIntExpr dflags sp_hwm
-    -- Replace CmmHighStackMark with the number of bytes of stack used, 
+    -- Replace CmmHighStackMark with the number of bytes of stack used,
     -- the sp_hwm.   See Note [Stack usage] in StgCmmHeap
 
-areaToSp dflags _ _ _ (CmmMachOp (MO_U_Lt _)  
+areaToSp dflags _ _ _ (CmmMachOp (MO_U_Lt _)
                           [CmmMachOp (MO_Sub _)
                                   [ CmmRegOff (CmmGlobal Sp) x_off
                                   , CmmLit (CmmInt y_lit _)],
                            CmmReg (CmmGlobal SpLim)])
-  | fromIntegral x_off >= y_lit 
+  | fromIntegral x_off >= y_lit
   = zeroExpr dflags
     -- Replace a stack-overflow test that cannot fail with a no-op
     -- See Note [Always false stack check]
@@ -1007,7 +1007,7 @@ lowerSafeForeignCall dflags block
     bdstart <- newTemp (bWord dflags)
     let suspend = saveThreadState dflags tso cn  <*>
                   caller_save <*>
-                  mkMiddle (callSuspendThread dflags id intrbl)
+                  mkMiddle (callSuspendThread dflags id safety)
         midCall = mkUnsafeCall tgt res args
         resume  = mkMiddle (callResumeThread new_base id) <*>
                   -- Assign the result to BaseReg: we
@@ -1055,12 +1055,12 @@ foreignLbl name = CmmLit (CmmLabel (mkForeignLabel name Nothing ForeignLabelInEx
 newTemp :: CmmType -> UniqSM LocalReg
 newTemp rep = getUniqueM >>= \u -> return (LocalReg u rep)
 
-callSuspendThread :: DynFlags -> LocalReg -> Bool -> CmmNode O O
-callSuspendThread dflags id intrbl =
+callSuspendThread :: DynFlags -> LocalReg -> Safety -> CmmNode O O
+callSuspendThread dflags id safety =
   CmmUnsafeForeignCall
        (ForeignTarget (foreignLbl (fsLit "suspendThread"))
         (ForeignConvention CCallConv [AddrHint, NoHint] [AddrHint] CmmMayReturn))
-       [id] [CmmReg (CmmGlobal BaseReg), mkIntExpr dflags (fromEnum intrbl)]
+       [id] [CmmReg (CmmGlobal BaseReg), mkIntExpr dflags (safeFlag safety)]
 
 callResumeThread :: LocalReg -> LocalReg -> CmmNode O O
 callResumeThread new_base id =

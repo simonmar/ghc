@@ -1523,7 +1523,7 @@ data Foreign = ImportF Callconv Safety String Name Type
 data Callconv = CCall | StdCall | CApi | Prim | JavaScript
           deriving( Show, Eq, Ord, Data, Typeable, Generic )
 
-data Safety = Unsafe | Safe | Interruptible
+data Safety = Unsafe | Safe | Interruptible | Nonblocking
         deriving( Show, Eq, Ord, Data, Typeable, Generic )
 
 data Pragma = InlineP         Name Inline RuleMatch Phases

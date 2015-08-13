@@ -2183,7 +2183,7 @@ recoverSuspendedTask (Capability *cap, Task *task)
  * ------------------------------------------------------------------------- */
 
 void *
-suspendThread (StgRegTable *reg, rtsBool interruptible)
+suspendThread (StgRegTable *reg, int flag)
 {
   Capability *cap;
   int saved_errno;
@@ -2212,7 +2212,7 @@ suspendThread (StgRegTable *reg, rtsBool interruptible)
 
   threadPaused(cap,tso);
 
-  if (interruptible) {
+  if (flag == SafeInterruptible) {
     tso->why_blocked = BlockedOnCCall_Interruptible;
   } else {
     tso->why_blocked = BlockedOnCCall;
@@ -2225,13 +2225,16 @@ suspendThread (StgRegTable *reg, rtsBool interruptible)
   // Otherwise allocate() will write to invalid memory.
   cap->r.rCurrentTSO = NULL;
 
-  ACQUIRE_LOCK(&cap->lock);
-
   suspendTask(cap,task);
   cap->in_haskell = rtsFalse;
-  releaseCapability_(cap,rtsFalse);
 
-  RELEASE_LOCK(&cap->lock);
+  if (flag == SafeNonBlocking) {
+      fastReleaseCapability(cap);
+  } else {
+      ACQUIRE_LOCK(&cap->lock);
+      releaseCapability_(cap,rtsFalse);
+      RELEASE_LOCK(&cap->lock);
+  }
 
   errno = saved_errno;
 #if mingw32_HOST_OS

@@ -105,6 +105,7 @@ templateHaskellNames = [
     unsafeName,
     safeName,
     interruptibleName,
+    nonblockingName,
     -- Inline
     noInlineDataConName, inlineDataConName, inlinableDataConName,
     -- RuleMatch
@@ -443,10 +444,11 @@ primCallName = libFun (fsLit "prim") primCallIdKey
 javaScriptCallName = libFun (fsLit "javaScript") javaScriptCallIdKey
 
 -- data Safety = ...
-unsafeName, safeName, interruptibleName :: Name
+unsafeName, safeName, interruptibleName, nonblockingName :: Name
 unsafeName     = libFun (fsLit "unsafe") unsafeIdKey
 safeName       = libFun (fsLit "safe") safeIdKey
 interruptibleName = libFun (fsLit "interruptible") interruptibleIdKey
+nonblockingName = libFun (fsLit "nonblocking") nonblockingIdKey
 
 -- data Inline = ...
 noInlineDataConName, inlineDataConName, inlinableDataConName :: Name
@@ -838,10 +840,11 @@ primCallIdKey       = mkPreludeMiscIdUnique 423
 javaScriptCallIdKey = mkPreludeMiscIdUnique 424
 
 -- data Safety = ...
-unsafeIdKey, safeIdKey, interruptibleIdKey :: Unique
+unsafeIdKey, safeIdKey, interruptibleIdKey, nonblockingIdKey :: Unique
 unsafeIdKey        = mkPreludeMiscIdUnique 430
 safeIdKey          = mkPreludeMiscIdUnique 431
 interruptibleIdKey = mkPreludeMiscIdUnique 432
+nonblockingIdKey   = mkPreludeMiscIdUnique 433
 
 -- data Inline = ...
 noInlineDataConKey, inlineDataConKey, inlinableDataConKey :: Unique

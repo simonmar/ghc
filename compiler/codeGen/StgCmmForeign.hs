@@ -238,7 +238,7 @@ emitForeignCall safety results target args
                                        , succ = k
                                        , ret_args = off
                                        , ret_off = updfr_off
-                                       , intrbl = playInterruptible safety })
+                                       , safety = safety })
             <*> mkLabel k tscope
             <*> copyout
            )

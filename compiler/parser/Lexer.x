@@ -541,6 +541,7 @@ data Token
   | ITdynamic
   | ITsafe
   | ITinterruptible
+  | ITnonblocking
   | ITunsafe
   | ITstdcallconv
   | ITccallconv
@@ -752,6 +753,7 @@ reservedWordsFM = listToUFM $
          ( "safe",           ITsafe,          xbit FfiBit .|.
                                               xbit SafeHaskellBit),
          ( "interruptible",  ITinterruptible, xbit InterruptibleFfiBit),
+         ( "nonblocking",    ITnonblocking,   xbit FfiBit),
          ( "unsafe",         ITunsafe,        xbit FfiBit),
          ( "stdcall",        ITstdcallconv,   xbit FfiBit),
          ( "ccall",          ITccallconv,     xbit FfiBit),
@@ -1973,6 +1975,7 @@ xtest ext xmap = testBit xmap (fromEnum ext)
 data ExtBits
   = FfiBit
   | InterruptibleFfiBit
+  | NonblockingFfiBit
   | CApiFfiBit
   | ParrBit
   | ArrowsBit
@@ -2101,6 +2104,7 @@ mkPState flags buf loc =
     where
       bitmap =     FfiBit                      `setBitIf` xopt Opt_ForeignFunctionInterface flags
                .|. InterruptibleFfiBit         `setBitIf` xopt Opt_InterruptibleFFI         flags
+               .|. NonblockingFfiBit           `setBitIf` xopt Opt_NonblockingFFI           flags
                .|. CApiFfiBit                  `setBitIf` xopt Opt_CApiFFI                  flags
                .|. ParrBit                     `setBitIf` xopt Opt_ParallelArrays           flags
                .|. ArrowsBit                   `setBitIf` xopt Opt_Arrows                   flags

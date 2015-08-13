@@ -149,7 +149,7 @@ data CmmNode e x where
       succ  :: ULabel,          -- Label of continuation
       ret_args :: ByteOff,      -- same as cml_ret_args
       ret_off :: ByteOff,       -- same as cml_ret_off
-      intrbl:: Bool             -- whether or not the call is interruptible
+      safety :: Safety          -- safety (interruptible / nonblocking)
   } -> CmmNode O C
 
 {- Note [Foreign calls]
