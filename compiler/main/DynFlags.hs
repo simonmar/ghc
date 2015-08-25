@@ -44,7 +44,7 @@ module DynFlags (
         targetRetainsAllBindings,
         GhcMode(..), isOneShot,
         GhcLink(..), isNoLink,
-        PackageFlag(..), PackageArg(..), ModRenaming(..),
+        ExposeFlag(..), PackageFlag(..), PackageArg(..), ModRenaming(..),
         PkgConfRef(..),
         Option(..), showOpt,
         DynLibLoader(..),
@@ -1113,8 +1113,21 @@ data PackageArg = PackageArg String
 data ModRenaming = ModRenaming Bool [(String, String)]
   deriving (Eq, Show)
 
+-- | Decides if the package should be eagerly linked when running inside
+-- the interpreter.
+-- @-package foo@ makes it eager
+-- @-expose-package foo@ makes it lazy
+-- This speeds up TH when the packages are explicitly listed. See #2437
+data ExposeFlag
+  = ExposeEager
+  | ExposeLazy
+  deriving (Eq, Show)
+
 data PackageFlag
-  = ExposePackage   PackageArg ModRenaming
+  = ExposePackage   PackageArg
+                    ExposeFlag
+                    ModRenaming -- ^ @-package@, @-package-id@
+                                -- and @-package-key@
   | HidePackage     String
   | IgnorePackage   String
   | TrustPackage    String
@@ -1280,8 +1293,8 @@ wayExtras _ WayDebug    dflags = dflags
 wayExtras _ WayDyn      dflags = dflags
 wayExtras _ WayProf     dflags = dflags
 wayExtras _ WayEventLog dflags = dflags
-wayExtras _ WayPar      dflags = exposePackage' "concurrent" dflags
-wayExtras _ WayGran     dflags = exposePackage' "concurrent" dflags
+wayExtras _ WayPar      dflags = exposePackage' ExposeEager "concurrent" dflags
+wayExtras _ WayGran     dflags = exposePackage' ExposeEager "concurrent" dflags
 wayExtras _ WayNDP      dflags = setExtensionFlag' Opt_ParallelArrays
                                $ setGeneralFlag' Opt_Vectorise dflags
 
@@ -2737,6 +2750,7 @@ package_flags = [
   , defGhcFlag "this-package-key"   (hasArg setPackageKey)
   , defFlag "package-id"            (HasArg exposePackageId)
   , defFlag "package"               (HasArg exposePackage)
+  , defFlag "expose-package"        (HasArg onlyExposePackage)
   , defFlag "package-key"           (HasArg exposePackageKey)
   , defFlag "hide-package"          (HasArg hidePackage)
   , defFlag "hide-all-packages"     (NoArg (setGeneralFlag Opt_HideAllPackages))
@@ -3674,18 +3688,19 @@ clearPkgConf = upd $ \s -> s { extraPkgConfs = const [] }
 parseModuleName :: ReadP String
 parseModuleName = munch1 (\c -> isAlphaNum c || c `elem` ".")
 
-parsePackageFlag :: (String -> PackageArg) -- type of argument
+parsePackageFlag :: ExposeFlag
+                 -> (String -> PackageArg) -- type of argument
                  -> String                 -- string to parse
                  -> PackageFlag
-parsePackageFlag constr str = case filter ((=="").snd) (readP_to_S parse str) of
+parsePackageFlag exposeFlag constr str = case filter ((=="").snd) (readP_to_S parse str) of
     [(r, "")] -> r
     _ -> throwGhcException $ CmdLineError ("Can't parse package flag: " ++ str)
   where parse = do
             pkg <- tok $ munch1 (\c -> isAlphaNum c || c `elem` ":-_.")
             ( do _ <- tok $ string "with"
-                 fmap (ExposePackage (constr pkg) . ModRenaming True) parseRns
-             <++ fmap (ExposePackage (constr pkg) . ModRenaming False) parseRns
-             <++ return (ExposePackage (constr pkg) (ModRenaming True [])))
+                 fmap (ExposePackage (constr pkg) exposeFlag . ModRenaming True) parseRns
+             <++ fmap (ExposePackage (constr pkg) exposeFlag . ModRenaming False) parseRns
+             <++ return (ExposePackage (constr pkg) exposeFlag (ModRenaming True [])))
         parseRns = do _ <- tok $ R.char '('
                       rns <- tok $ sepBy parseItem (tok $ R.char ',')
                       _ <- tok $ R.char ')'
@@ -3700,14 +3715,15 @@ parsePackageFlag constr str = case filter ((=="").snd) (readP_to_S parse str) of
         tok m = m >>= \x -> skipSpaces >> return x
 
 exposePackage, exposePackageId, exposePackageKey, hidePackage, ignorePackage,
-        trustPackage, distrustPackage :: String -> DynP ()
-exposePackage p = upd (exposePackage' p)
+        trustPackage, distrustPackage, onlyExposePackage :: String -> DynP ()
+exposePackage p = upd (exposePackage' ExposeEager p)
+onlyExposePackage p = upd (exposePackage' ExposeLazy p)
 exposePackageId p =
   upd (\s -> s{ packageFlags =
-    parsePackageFlag PackageIdArg p : packageFlags s })
+    parsePackageFlag ExposeEager PackageIdArg p : packageFlags s })
 exposePackageKey p =
   upd (\s -> s{ packageFlags =
-    parsePackageFlag PackageKeyArg p : packageFlags s })
+    parsePackageFlag ExposeEager PackageKeyArg p : packageFlags s })
 hidePackage p =
   upd (\s -> s{ packageFlags = HidePackage p : packageFlags s })
 ignorePackage p =
@@ -3717,10 +3733,10 @@ trustPackage p = exposePackage p >> -- both trust and distrust also expose a pac
 distrustPackage p = exposePackage p >>
   upd (\s -> s{ packageFlags = DistrustPackage p : packageFlags s })
 
-exposePackage' :: String -> DynFlags -> DynFlags
-exposePackage' p dflags
+exposePackage' :: ExposeFlag -> String -> DynFlags -> DynFlags
+exposePackage' exposeFlag p dflags
     = dflags { packageFlags =
-            parsePackageFlag PackageArg p : packageFlags dflags }
+            parsePackageFlag exposeFlag PackageArg p : packageFlags dflags }
 
 setPackageKey :: String -> DynFlags -> DynFlags
 setPackageKey p s =  s{ thisPackage = stringToPackageKey p }

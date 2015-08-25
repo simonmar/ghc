@@ -466,7 +466,7 @@ applyPackageFlag
 
 applyPackageFlag dflags unusable (pkgs, vm) flag =
   case flag of
-    ExposePackage arg (ModRenaming b rns) ->
+    ExposePackage arg _ (ModRenaming b rns) ->
        case selectPackages (matching arg) pkgs unusable of
          Left ps         -> packageFlagErr dflags flag ps
          Right (p:_,_) -> return (pkgs, vm')
@@ -548,7 +548,7 @@ packageFlagErr :: DynFlags
 
 -- for missing DPH package we emit a more helpful error message, because
 -- this may be the result of using -fdph-par or -fdph-seq.
-packageFlagErr dflags (ExposePackage (PackageArg pkg) _) []
+packageFlagErr dflags (ExposePackage (PackageArg pkg) _ _) []
   | is_dph_package pkg
   = throwGhcExceptionIO (CmdLineError (showSDoc dflags $ dph_err))
   where dph_err = text "the " <> text pkg <> text " package is not installed."
@@ -570,7 +570,7 @@ pprFlag :: PackageFlag -> SDoc
 pprFlag flag = case flag of
     IgnorePackage p -> text "-ignore-package " <> text p
     HidePackage p   -> text "-hide-package " <> text p
-    ExposePackage a rns -> ppr_arg a <> ppr_rns rns
+    ExposePackage a _ rns -> ppr_arg a <> ppr_rns rns
     TrustPackage p    -> text "-trust " <> text p
     DistrustPackage p -> text "-distrust " <> text p
   where ppr_arg arg = case arg of
@@ -886,7 +886,7 @@ mkPackageState dflags0 pkgs0 preload0 this_package = do
 
       ipid_selected = depClosure ipid_map
                                  [ InstalledPackageId (mkFastString i)
-                                 | ExposePackage (PackageIdArg i) _ <- flags ]
+                                 | ExposePackage (PackageIdArg i) _ _ <- flags ]
 
       (ignore_flags, other_flags) = partition is_ignore flags
       is_ignore IgnorePackage{} = True
@@ -951,9 +951,9 @@ mkPackageState dflags0 pkgs0 preload0 this_package = do
   --
   let preload1 = [ installedPackageId p | f <- flags, p <- get_exposed f ]
 
-      get_exposed (ExposePackage a _) = take 1 . sortByVersion
-                                      . filter (matching a)
-                                      $ pkgs2
+      get_exposed (ExposePackage a ExposeEager _) = take 1 . sortByVersion
+                                                  . filter (matching a)
+                                                  $ pkgs2
       get_exposed _                 = []
 
   let pkg_db = extendPackageConfigMap emptyPackageConfigMap pkgs3

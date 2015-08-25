@@ -19,6 +19,7 @@ main =
                 dflags <- getSessionDynFlags
                 setSessionDynFlags (dflags {
                     packageFlags = [ExposePackage (PackageArg "ghc")
+                                                  ExposeEager
                                                   (ModRenaming True [])]
                     })
                 dflags <- getSessionDynFlags
