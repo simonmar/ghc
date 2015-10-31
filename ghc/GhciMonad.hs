@@ -120,7 +120,7 @@ data GHCiState = GHCiState
         noBuffering :: ForeignHValue
      }
 
-type TickArray = Array Int [(BreakIndex,SrcSpan)]
+type TickArray = Array Int [(BreakIndex,RealSrcSpan)]
 
 data GHCiOption
         = ShowTiming            -- show time/allocs after evaluation

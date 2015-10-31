@@ -134,8 +134,7 @@ module GHC (
 
         -- ** The debugger
         SingleStep(..),
-        Resume(resumeStmt, resumeBreakInfo, resumeSpan,
-               resumeHistory, resumeHistoryIx),
+        Resume(..),
         History(historyBreakInfo, historyEnclosingDecls),
         GHC.getHistorySpan, getHistoryModule,
         abandon, abandonAll,

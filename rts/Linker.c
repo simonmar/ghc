@@ -163,7 +163,7 @@ Mutex linker_mutex;
  * This protects unloaded_objects.  We have a separate mutex for this, because
  * the GC needs to access unloaded_objects in checkUnload, while the linker only
  * needs to access unloaded_objects in unloadObj(), so this allows most linker
- * operations proceed concurrently with the GC. 
+ * operations proceed concurrently with the GC.
  */
 Mutex linker_unloaded_mutex;
 #endif
@@ -1100,6 +1100,7 @@ typedef struct _RtsSymbolVal {
       SymI_HasProto(stg_restore_cccs_info)      \
       SymI_HasProto(enterFunCCS)                \
       SymI_HasProto(pushCostCentre)             \
+      SymI_HasProto(mkCostCentre)               \
       SymI_HasProto(era)
 #else
 #define RTS_PROF_SYMBOLS /* empty */
@@ -1157,6 +1158,7 @@ typedef struct _RtsSymbolVal {
       SymI_HasProto(stg_catchRetryzh)                                   \
       SymI_HasProto(stg_catchSTMzh)                                     \
       SymI_HasProto(stg_checkzh)                                        \
+      SymI_HasProto(stg_clearCCSzh)                                     \
       SymI_HasProto(closure_flags)                                      \
       SymI_HasProto(cmp_thread)                                         \
       SymI_HasProto(createAdjustor)                                     \
