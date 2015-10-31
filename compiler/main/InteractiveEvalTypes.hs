@@ -28,6 +28,8 @@ import SrcLoc
 import Exception
 
 import Data.Word
+import Foreign
+import GHC.Stack
 
 data ExecOptions
  = ExecOptions
@@ -67,9 +69,13 @@ data Resume
        resumeBreakInfo :: Maybe BreakInfo,
                                         -- the breakpoint we stopped at
                                         -- (Nothing <=> exception)
-       resumeSpan      :: SrcSpan,      -- just a cache, otherwise it's a pain
-                                        -- to fetch the ModDetails & ModBreaks
-                                        -- to get this.
+       resumeSpan      :: SrcSpan,      -- just a copy of the SrcSpan
+                                        -- from the ModBreaks,
+                                        -- otherwise it's a pain to
+                                        -- fetch the ModDetails &
+                                        -- ModBreaks to get this.
+       resumeDecl      :: String,       -- ditto
+       resumeCCS       :: Ptr CostCentreStack,
        resumeHistory   :: [History],
        resumeHistoryIx :: Int           -- 0 <==> at the top of the history
    }

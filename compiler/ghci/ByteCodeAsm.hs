@@ -359,9 +359,11 @@ assembleI dflags i = case i of
   RETURN_UBX rep           -> emit (return_ubx rep) []
   CCALL off m_addr i       -> do np <- addr m_addr
                                  emit bci_CCALL [SmallOp off, Op np, SmallOp i]
-  BRK_FUN array index info -> do p1 <- ptr (BCOPtrArray array)
-                                 p2 <- ptr (BCOPtrBreakInfo info)
-                                 emit bci_BRK_FUN [Op p1, SmallOp index, Op p2]
+  BRK_FUN array index info cc -> do p1 <- ptr (BCOPtrArray array)
+                                    p2 <- ptr (BCOPtrBreakInfo info)
+                                    np <- addr (castPtr cc)
+                                    emit bci_BRK_FUN [Op p1, SmallOp index,
+                                                      Op p2, Op np]
 
   where
     literal (MachLabel fs (Just sz) _)

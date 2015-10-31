@@ -13,6 +13,7 @@ module GHCi
   , evalString
   , evalStringToIOString
   , mallocData
+  , mkCostCentre
 
   -- * The object-code linker
   , initObjLinker
@@ -234,6 +235,12 @@ evalStringToIOString hsc_env fhv str = do
 -- to the memory in the remote process.
 mallocData :: HscEnv -> ByteString -> IO (Ptr ())
 mallocData hsc_env bs = fromRemotePtr <$> iservCmd hsc_env (MallocData bs)
+
+mkCostCentre
+  :: HscEnv -> RemotePtr {- CChar -} -> String -> String
+  -> IO RemotePtr {- CCostCentre -}
+mkCostCentre hsc_env c_module name src
+  = iservCmd hsc_env (MkCostCentre c_module name src)
 
 
 -- -----------------------------------------------------------------------------

@@ -112,6 +112,7 @@ module HscTypes (
 
         -- * Breakpoints
         ModBreaks (..), BreakIndex, emptyModBreaks,
+        CCostCentre,
 
         -- * Vectorisation information
         VectInfo(..), IfaceVectInfo(..), noVectInfo, plusVectInfo,
@@ -189,12 +190,12 @@ import Platform
 import Util
 import GHC.Serialized   ( Serialized )
 
+import Foreign
 import Control.Monad    ( guard, liftM, when, ap )
 import Control.Concurrent
 import Data.Array       ( Array, array )
 import Data.IORef
 import Data.Time
-import Data.Word
 import Data.Typeable    ( Typeable )
 import Exception
 import Foreign
@@ -2860,6 +2861,9 @@ byteCodeOfObject other       = pprPanic "byteCodeOfObject" (ppr other)
 -- | Breakpoint index
 type BreakIndex = Int
 
+-- | C CostCentre type
+data CCostCentre
+
 -- | All the information about the breakpoints for a given module
 data ModBreaks
    = ModBreaks
@@ -2872,6 +2876,10 @@ data ModBreaks
         -- ^ An array giving the names of the free variables at each breakpoint.
    , modBreaks_decls :: !(Array BreakIndex [String])
         -- ^ An array giving the names of the declarations enclosing each breakpoint.
+#ifdef GHCI
+   , modBreaks_ccs :: !(Array BreakIndex (RemotePtr {- CCostCentre -}))
+        -- ^ Array pointing to cost centre for each breakpoint
+#endif
    }
 
 -- | Construct an empty ModBreaks
@@ -2882,4 +2890,7 @@ emptyModBreaks = ModBreaks
    , modBreaks_locs  = array (0,-1) []
    , modBreaks_vars  = array (0,-1) []
    , modBreaks_decls = array (0,-1) []
+#ifdef GHCI
+   , modBreaks_ccs = array (0,-1) []
+#endif
    }

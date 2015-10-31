@@ -139,7 +139,7 @@ data BCInstr
    | RETURN_UBX ArgRep -- return an unlifted value, here's its rep
 
    -- Breakpoints
-   | BRK_FUN          (MutableByteArray# RealWorld) Word16 BreakInfo
+   | BRK_FUN          (MutableByteArray# RealWorld) Word16 BreakInfo (Ptr ())
 
 -- -----------------------------------------------------------------------------
 -- Printing bytecode instructions
@@ -239,7 +239,7 @@ instance Outputable BCInstr where
    ppr ENTER                 = text "ENTER"
    ppr RETURN                = text "RETURN"
    ppr (RETURN_UBX pk)       = text "RETURN_UBX  " <+> ppr pk
-   ppr (BRK_FUN _breakArray index info) = text "BRK_FUN" <+> text "<array>" <+> ppr index <+> ppr info
+   ppr (BRK_FUN _breakArray index info _cc) = text "BRK_FUN" <+> text "<array>" <+> ppr index <+> ppr info <+> text "<cc>"
 
 -- -----------------------------------------------------------------------------
 -- The stack use, in words, of each bytecode insn.  These _must_ be
