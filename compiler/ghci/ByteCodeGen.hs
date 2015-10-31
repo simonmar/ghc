@@ -59,6 +59,7 @@ import BreakArray
 import Data.Maybe
 import Module
 
+import Data.Array
 import Data.Map (Map)
 import qualified Data.Map as Map
 import qualified FiniteMap as Map
@@ -308,7 +309,8 @@ schemeER_wrk :: Word -> BCEnv -> AnnExpr' Id DVarSet -> BcM BCInstrList
 schemeER_wrk d p rhs
   | AnnTick (Breakpoint tick_no fvs) (_annot, newRhs) <- rhs
   = do  code <- schemeE (fromIntegral d) 0 p newRhs
-        arr <- getBreakArray
+        flag_arr <- getBreakArray
+        cc_arr <- getCCArray
         this_mod <- getCurrentModule
         let idOffSets = getVarOffSets d p fvs
         let breakInfo = BreakInfo
@@ -317,9 +319,10 @@ schemeER_wrk d p rhs
                         , breakInfo_vars = idOffSets
                         , breakInfo_resty = exprType (deAnnotate' newRhs)
                         }
-        let breakInstr = case arr of
+        let cc = castPtr (cc_arr ! tick_no)
+        let breakInstr = case flag_arr of
                          BA arr# ->
-                             BRK_FUN arr# (fromIntegral tick_no) breakInfo
+                             BRK_FUN arr# (fromIntegral tick_no) breakInfo cc
         return $ breakInstr `consOL` code
    | otherwise = schemeE (fromIntegral d) 0 p rhs
 
@@ -756,12 +759,20 @@ doCase d s p (_,scrut) bndr alts is_unboxed_tuple
   = do
      dflags <- getDynFlags
      let
+        profiling
+          | gopt Opt_ExternalInterpreter dflags = gopt Opt_SccProfilingOn dflags
+          | otherwise = rtsIsProfiled
+
         -- Top of stack is the return itbl, as usual.
         -- underneath it is the pointer to the alt_code BCO.
         -- When an alt is entered, it assumes the returned value is
         -- on top of the itbl.
         ret_frame_sizeW :: Word
         ret_frame_sizeW = 2
+
+        -- The extra frame we push to save/restor the CCCS when profiling
+        save_ccs_sizeW | profiling = 2
+                       | otherwise = 0
 
         -- An unlifted value gets an extra info table pushed on top
         -- when it is returned.
@@ -878,8 +889,9 @@ doCase d s p (_,scrut) bndr alts is_unboxed_tuple
                        0{-no arity-} bitmap_size bitmap True{-is alts-}
 --     trace ("case: bndr = " ++ showSDocDebug (ppr bndr) ++ "\ndepth = " ++ show d ++ "\nenv = \n" ++ showSDocDebug (ppBCEnv p) ++
 --            "\n      bitmap = " ++ show bitmap) $ do
-     scrut_code <- schemeE (d + ret_frame_sizeW)
-                           (d + ret_frame_sizeW)
+
+     scrut_code <- schemeE (d + ret_frame_sizeW + save_ccs_sizeW)
+                           (d + ret_frame_sizeW + save_ccs_sizeW)
                            p scrut
      alt_bco' <- emitBc alt_bco
      let push_alts
@@ -1607,7 +1619,7 @@ data BcM_State
         , nextlabel   :: Word16          -- for generating local labels
         , ffis        :: [FFIInfo]       -- ffi info blocks, to free later
                                          -- Should be free()d when it is GCd
-        , breakArray :: BreakArray       -- array of breakpoint flags
+        , modBreaks :: ModBreaks         -- info about breakpoints
         }
 
 newtype BcM r = BcM (BcM_State -> IO (BcM_State, r))
@@ -1620,9 +1632,7 @@ ioToBc io = BcM $ \st -> do
 runBc :: HscEnv -> UniqSupply -> Module -> ModBreaks -> BcM r
       -> IO (BcM_State, r)
 runBc hsc_env us this_mod modBreaks (BcM m)
-   = m (BcM_State hsc_env us this_mod 0 [] breakArray)
-   where
-   breakArray = modBreaks_flags modBreaks
+   = m (BcM_State hsc_env us this_mod 0 [] modBreaks)
 
 thenBc :: BcM a -> (a -> BcM b) -> BcM b
 thenBc (BcM expr) cont = BcM $ \st0 -> do
@@ -1680,7 +1690,10 @@ getLabelsBc n
                  in return (st{nextlabel = ctr+n}, [ctr .. ctr+n-1])
 
 getBreakArray :: BcM BreakArray
-getBreakArray = BcM $ \st -> return (st, breakArray st)
+getBreakArray = BcM $ \st -> return (st, modBreaks_flags (modBreaks st))
+
+getCCArray :: BcM (Array BreakIndex (Ptr CCostCentre))
+getCCArray = BcM $ \st -> return (st, modBreaks_ccs (modBreaks st))
 
 newUnique :: BcM Unique
 newUnique = BcM $

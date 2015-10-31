@@ -48,6 +48,7 @@ import PrelNames
 import RdrName ( RdrName, getGRE_NameQualifier_maybes, getRdrName )
 import SrcLoc
 import qualified Lexer
+import ByteCodeInstr (BreakInfo(..))
 
 import StringBuffer
 import Outputable hiding ( printForUser, printForUserPartWay, bold )
@@ -89,6 +90,7 @@ import Foreign
 #else
 import Foreign.Safe
 #endif
+import GHC.Stack hiding (SrcLoc(..))
 
 import System.Directory
 import System.Environment
@@ -193,7 +195,8 @@ ghciCommands = [
   ("type",      keepGoing' typeOfExpr,          completeExpression),
   ("trace",     keepGoing traceCmd,             completeExpression),
   ("undef",     keepGoing undefineMacro,        completeMacro),
-  ("unset",     keepGoing unsetOptions,         completeSetOptions)
+  ("unset",     keepGoing unsetOptions,         completeSetOptions),
+  ("where",     keepGoing whereCmd,             noCompletion)
   ]
 
 
@@ -1005,8 +1008,7 @@ toBreakIdAndLocation (Just inf) = do
 
 printStoppedAtBreakInfo :: Resume -> [Name] -> GHCi ()
 printStoppedAtBreakInfo res names = do
-  printForUser $ ptext (sLit "Stopped at") <+>
-    ppr (GHC.resumeSpan res)
+  printForUser $ pprStopped res
   --  printTypeOfNames session names
   let namesSorted = sortBy compareNames names
   tythings <- catMaybes `liftM` mapM GHC.lookupName namesSorted
@@ -1102,6 +1104,13 @@ getCurrentBreakSpan = do
                 let hist = GHC.resumeHistory r !! (ix-1)
                 pan <- GHC.getHistorySpan hist
                 return (Just pan)
+
+getCallStackAtCurrentBreakpoint :: GHCi (Maybe [String])
+getCallStackAtCurrentBreakpoint = do
+  resumes <- GHC.getResumeContext
+  case resumes of
+    [] -> return Nothing
+    (r:_) -> Just <$> liftIO (ccsToStrings (GHC.resumeCCS r))
 
 getCurrentBreakModule :: GHCi (Maybe Module)
 getCurrentBreakModule = do
@@ -2450,7 +2459,18 @@ showContext = do
   where
    pp_resume res =
         ptext (sLit "--> ") <> text (GHC.resumeStmt res)
-        $$ nest 2 (ptext (sLit "Stopped at") <+> ppr (GHC.resumeSpan res))
+        $$ nest 2 (pprStopped res)
+
+pprStopped :: GHC.Resume -> SDoc
+pprStopped res =
+  ptext (sLit "Stopped in")
+    <+> ((case mb_mod_name of
+           Nothing -> empty
+           Just mod_name -> text (moduleNameString mod_name) <> char '.')
+         <> text (GHC.resumeDecl res))
+    <> char ',' <+> ppr (GHC.resumeSpan res)
+ where
+  mb_mod_name = moduleName <$> breakInfo_module <$> GHC.resumeBreakInfo res
 
 showPackages :: GHCi ()
 showPackages = do
@@ -2807,7 +2827,7 @@ backCmd arg
   | otherwise       = liftIO $ putStrLn "Syntax:  :back [num]"
   where
   back num = withSandboxOnly ":back" $ do
-      (names, _, pan) <- GHC.back num
+      (names, _, pan, _) <- GHC.back num
       printForUser $ ptext (sLit "Logged breakpoint at") <+> ppr pan
       printTypeOfNames names
        -- run the command set with ":set stop <cmd>"
@@ -2821,7 +2841,7 @@ forwardCmd arg
   | otherwise       = liftIO $ putStrLn "Syntax:  :back [num]"
   where
   forward num = withSandboxOnly ":forward" $ do
-      (names, ix, pan) <- GHC.forward num
+      (names, ix, pan, _) <- GHC.forward num
       printForUser $ (if (ix == 0)
                         then ptext (sLit "Stopped at")
                         else ptext (sLit "Logged breakpoint at")) <+> ppr pan
@@ -2884,13 +2904,12 @@ breakSyntax = throwGhcException (CmdLineError "Syntax: :break [<mod>] <line> [<c
 
 findBreakAndSet :: Module -> (TickArray -> Maybe (Int, SrcSpan)) -> GHCi ()
 findBreakAndSet md lookupTickTree = do
-   dflags <- getDynFlags
    tickArray <- getTickArray md
    (breakArray, _) <- getModBreak md
    case lookupTickTree tickArray of
       Nothing  -> liftIO $ putStrLn $ "No breakpoints found at that location."
       Just (tick, pan) -> do
-         success <- liftIO $ setBreakFlag dflags True breakArray tick
+         success <- liftIO $ setBreakFlag True breakArray tick
          if success
             then do
                (alreadySet, nm) <-
@@ -2974,6 +2993,15 @@ start_bold = "\ESC[1m"
 end_bold :: String
 end_bold   = "\ESC[0m"
 
+-----------------------------------------------------------------------------
+-- :where
+
+whereCmd :: String -> GHCi ()
+whereCmd = noArgs $ do
+  mstrs <- getCallStackAtCurrentBreakpoint
+  case mstrs of
+    Nothing -> return ()
+    Just strs -> liftIO $ putStrLn (renderStack strs)
 
 -----------------------------------------------------------------------------
 -- :list
@@ -3174,9 +3202,8 @@ deleteBreak identity = do
 
 turnOffBreak :: BreakLocation -> GHCi Bool
 turnOffBreak loc = do
-  dflags <- getDynFlags
   (arr, _) <- getModBreak (breakModule loc)
-  liftIO $ setBreakFlag dflags False arr (breakTick loc)
+  liftIO $ setBreakFlag False arr (breakTick loc)
 
 getModBreak :: Module -> GHCi (GHC.BreakArray, Array Int SrcSpan)
 getModBreak m = do
@@ -3186,10 +3213,10 @@ getModBreak m = do
    let ticks      = GHC.modBreaks_locs  modBreaks
    return (arr, ticks)
 
-setBreakFlag :: DynFlags -> Bool -> GHC.BreakArray -> Int -> IO Bool
-setBreakFlag dflags toggle arr i
-   | toggle    = GHC.setBreakOn  dflags arr i
-   | otherwise = GHC.setBreakOff dflags arr i
+setBreakFlag :: Bool -> GHC.BreakArray -> Int -> IO Bool
+setBreakFlag toggle arr i
+   | toggle    = GHC.setBreakOn  arr i
+   | otherwise = GHC.setBreakOff arr i
 
 
 -- ---------------------------------------------------------------------------

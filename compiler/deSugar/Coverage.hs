@@ -7,6 +7,9 @@
 
 module Coverage (addTicksToBinds, hpcInitCode) where
 
+#ifdef GHCI
+import qualified GHCi
+#endif
 import Type
 import HsSyn
 import Module
@@ -33,6 +36,8 @@ import Maybes
 import CLabel
 import Util
 
+import Foreign
+import Foreign.C
 import Data.Array
 import Data.Time
 import System.Directory
@@ -53,7 +58,7 @@ import qualified Data.Map as Map
 -}
 
 addTicksToBinds
-        :: DynFlags
+        :: HscEnv
         -> Module
         -> ModLocation          -- ... off the current module
         -> NameSet              -- Exported Ids.  When we call addTicksToBinds,
@@ -63,8 +68,9 @@ addTicksToBinds
         -> LHsBinds Id
         -> IO (LHsBinds Id, HpcInfo, ModBreaks)
 
-addTicksToBinds dflags mod mod_loc exports tyCons binds
-  | let passes = coveragePasses dflags, not (null passes),
+addTicksToBinds hsc_env mod mod_loc exports tyCons binds
+  | let dflags = hsc_dflags hsc_env
+        passes = coveragePasses dflags, not (null passes),
     Just orig_file <- ml_hs_file mod_loc = do
 
      if "boot" `isSuffixOf` orig_file
@@ -94,17 +100,15 @@ addTicksToBinds dflags mod mod_loc exports tyCons binds
 
           initState = TT { tickBoxCount = 0
                          , mixEntries   = []
-                         , breakCount   = 0
-                         , breaks       = []
                          , uniqSupply   = us
                          }
 
           (binds1,st) = foldr tickPass (binds, initState) passes
 
      let tickCount = tickBoxCount st
-     hashNo <- writeMixEntries dflags mod tickCount (reverse $ mixEntries st)
-                               orig_file2
-     modBreaks <- mkModBreaks dflags (breakCount st) (reverse $ breaks st)
+         entries = reverse $ mixEntries st
+     hashNo <- writeMixEntries dflags mod tickCount entries orig_file2
+     modBreaks <- mkModBreaks hsc_env mod tickCount entries
 
      when (dopt Opt_D_dump_ticked dflags) $
          log_action dflags dflags SevDump noSrcSpan defaultDumpStyle
@@ -127,24 +131,59 @@ guessSourceFile binds orig_file =
         _ -> orig_file
 
 
-mkModBreaks :: DynFlags -> Int -> [MixEntry_] -> IO ModBreaks
-mkModBreaks dflags count entries = do
-  breakArray <- newBreakArray dflags $ length entries
+mkModBreaks :: HscEnv -> Module -> Int -> [MixEntry_] -> IO ModBreaks
+mkModBreaks hsc_env mod count entries = do
+  breakArray <- newBreakArray (length entries)
+#ifdef GHCI
+  ccs <- mkCCSArray hsc_env mod count entries
+#endif
   let
-         locsTicks = listArray (0,count-1) [ span  | (span,_,_,_)  <- entries ]
-         varsTicks = listArray (0,count-1) [ vars  | (_,_,vars,_)  <- entries ]
-         declsTicks= listArray (0,count-1) [ decls | (_,decls,_,_) <- entries ]
+         locsTicks  = listArray (0,count-1) [ span  | (span,_,_,_)  <- entries ]
+         varsTicks  = listArray (0,count-1) [ vars  | (_,_,vars,_)  <- entries ]
+         declsTicks = listArray (0,count-1) [ decls | (_,decls,_,_) <- entries ]
          modBreaks = emptyModBreaks
                      { modBreaks_flags = breakArray
                      , modBreaks_locs  = locsTicks
                      , modBreaks_vars  = varsTicks
                      , modBreaks_decls = declsTicks
+#ifdef GHCI
+                     , modBreaks_ccs   = ccs
+#endif
                      }
   --
   return modBreaks
 
+#ifdef GHCI
+mkCCSArray
+  :: HscEnv -> Module -> Int -> [MixEntry_]
+  -> IO (Array BreakIndex (Ptr CCostCentre))
+mkCCSArray hsc_env modul count entries = do
+  let dflags = hsc_dflags hsc_env
+      profiling = if gopt Opt_ExternalInterpreter dflags
+                     then gopt Opt_SccProfilingOn dflags
+                     else rtsIsProfiled
+  if profiling
+    then do
+      c_module <- mallocData (moduleNameString (moduleName mod))
+      costcentres <- mapM (mkCostCentre hsc_env c_module) entries
+      return (listArray (0,count-1) costcentres)
+    else do
+      return (listArray (0,-1) [])
+ where
+    mkCostCentre
+     :: HscEnv
+     -> RemotePtr {- CChar -}
+     -> MixEntry_
+     -> IO (RemotePtr {- CCostCentre -})
+    mkCostCentre HscEnv{..}  c_module (srcspan, decl_path, _, _) = do
+      let name = concat (intersperse "." decl_path)
+          src = showSDoc hsc_dflags (ppr srcspan)
+      GHCi.mkCostCentre c_module name src
+#endif
 
-writeMixEntries :: DynFlags -> Module -> Int -> [MixEntry_] -> FilePath -> IO Int
+
+writeMixEntries
+  :: DynFlags -> Module -> Int -> [MixEntry_] -> FilePath -> IO Int
 writeMixEntries dflags mod count entries filename
   | not (gopt Opt_Hpc dflags) = return 0
   | otherwise   = do
@@ -156,7 +195,8 @@ writeMixEntries dflags mod count entries filename
               | moduleUnitId mod == mainUnitId  = hpc_dir
               | otherwise = hpc_dir ++ "/" ++ unitIdString (moduleUnitId mod)
 
-            tabStop = 8 -- <tab> counts as a normal char in GHC's location ranges.
+            tabStop = 8 -- <tab> counts as a normal char in GHC's
+                        -- location ranges.
 
         createDirectoryIfMissing True hpc_mod_dir
         modTime <- getModificationUTCTime filename
@@ -205,7 +245,7 @@ shouldTickBind  :: TickDensity
 
 shouldTickBind density top_lev exported simple_pat inline
  = case density of
-      TickForBreakPoints    -> not simple_pat
+      TickForBreakPoints    -> False
         -- we never add breakpoints to simple pattern bindings
         -- (there's always a tick on the rhs anyway).
       TickAllFunctions      -> not inline
@@ -296,7 +336,8 @@ addTickLHsBind (L pos (funBind@(FunBind { fun_id = (L _ id)  }))) = do
                            , fun_tick = tick `mbCons` fun_tick funBind }
 
    where
-   -- a binding is a simple pattern binding if it is a funbind with zero patterns
+   -- a binding is a simple pattern binding if it is a funbind with
+   -- zero patterns
    isSimplePatBind :: HsBind a -> Bool
    isSimplePatBind funBind = matchGroupArity (fun_matches funBind) == 0
 
@@ -329,7 +370,8 @@ addTickLHsBind var_bind@(L _ (VarBind {})) = return var_bind
 addTickLHsBind patsyn_bind@(L _ (PatSynBind {})) = return patsyn_bind
 
 
-bindTick :: TickDensity -> String -> SrcSpan -> FreeVars -> TM (Maybe (Tickish Id))
+bindTick
+  :: TickDensity -> String -> SrcSpan -> FreeVars -> TM (Maybe (Tickish Id))
 bindTick density name pos fvs = do
   decl_path <- getPathEntry
   let
@@ -425,18 +467,11 @@ addTickLHsExprNever (L pos e0) = do
     e1 <- addTickHsExpr e0
     return $ L pos e1
 
--- general heuristic: expressions which do not denote values are good break points
+-- general heuristic: expressions which do not denote values are good
+-- break points
 isGoodBreakExpr :: HsExpr Id -> Bool
 isGoodBreakExpr (HsApp {})     = True
 isGoodBreakExpr (OpApp {})     = True
-isGoodBreakExpr (NegApp {})    = True
-isGoodBreakExpr (HsIf {})      = True
-isGoodBreakExpr (HsMultiIf {}) = True
-isGoodBreakExpr (HsCase {})    = True
-isGoodBreakExpr (RecordCon {}) = True
-isGoodBreakExpr (RecordUpd {}) = True
-isGoodBreakExpr (ArithSeq {})  = True
-isGoodBreakExpr (PArrSeq {})   = True
 isGoodBreakExpr _other         = False
 
 isCallSite :: HsExpr Id -> Bool
@@ -957,8 +992,6 @@ liftL f (L loc a) = do
 
 data TickTransState = TT { tickBoxCount:: Int
                          , mixEntries  :: [MixEntry_]
-                         , breakCount  :: Int
-                         , breaks      :: [MixEntry_]
                          , uniqSupply  :: UniqSupply
                          }
 
@@ -1174,9 +1207,9 @@ mkTickish boxLabel countEntries topOnly pos fvs decl_path = do
       return $ ProfNote cc count True{-scopes-}
 
     Breakpoints -> do
-      c <- liftM breakCount getState
-      setState $ \st -> st { breakCount = c + 1
-                           , breaks = me:breaks st }
+      c <- liftM tickBoxCount getState
+      setState $ \st -> st { tickBoxCount = c + 1
+                           , mixEntries = me:mixEntries st }
       return $ Breakpoint c ids
 
     SourceNotes | RealSrcSpan pos' <- pos ->

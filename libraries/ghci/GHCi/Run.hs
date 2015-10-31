@@ -1,5 +1,5 @@
 {-# LANGUAGE GADTs, RecordWildCards, UnboxedTuples, MagicHash,
-    ScopedTypeVariables #-}
+    ScopedTypeVariables, CPP #-}
 {-# OPTIONS_GHC -fno-warn-name-shadowing #-}
 
 -- |
@@ -25,6 +25,7 @@ import Control.Monad
 import Data.ByteString (ByteString)
 import qualified Data.ByteString.Unsafe as B
 import GHC.Exts
+import GHC.Stack
 import Foreign
 import Foreign.C
 import GHC.Conc.Sync
@@ -57,6 +58,8 @@ run m = case m of
   EvalString r -> evalString r
   EvalStringToString r s -> evalStringToString r s
   EvalIO r -> evalIO r
+  MkCostCentre name mod src -> mkCostCentre name mod src
+  CostCentreInfo ptr -> ccsToStrings (fromRemotePtr ptr)
   MallocData bs -> mkString bs
   PrepFFI conv args res -> toRemotePtr <$> prepForeignCall conv args res
   FreeFFI p -> freeForeignCallInfo (fromRemotePtr p)
@@ -113,7 +116,7 @@ sandboxIO opts io = do
   breakMVar <- newEmptyMVar
   statusMVar <- newEmptyMVar
   withBreakAction opts breakMVar statusMVar $ do
-    let runIt = measureAlloc $ tryEval $ rethrow opts io
+    let runIt = measureAlloc $ tryEval $ rethrow opts $ clearCCS io
     if useSandboxThread opts
        then do
          tid <- forkIO $ do unsafeUnmask runIt >>= putMVar statusMVar
@@ -238,7 +241,8 @@ withBreakAction opts breakMVar statusMVar act
      resume_r <- mkHValueRef (unsafeCoerce resume)
      apStack_r <- mkHValueRef apStack
      info_r <- mkHValueRef info
-     putMVar statusMVar (EvalBreak is_exception apStack_r info_r resume_r)
+     ccs <- getCCSOf apStack
+     putMVar statusMVar (EvalBreak is_exception apStack_r info_r resume_r ccs)
      takeMVar breakMVar
 
    resetBreakAction stablePtr = do
@@ -306,3 +310,16 @@ mkString bs = B.unsafeUseAsCStringLen bs $ \(cstr,len) -> do
   ptr <- mallocBytes len
   copyBytes ptr cstr len
   return (toRemotePtr ptr)
+
+mkCostCentre :: DynFlags -> Ptr CChar -> MixEntry_ -> IO (Ptr CCostCentre)
+#if defined(PROFILING)
+mkCostCentre dflags c_module (srcspan, decl_path, _, _) = do
+  c_name <- newCString $ concat (intersperse "." decl_path)
+  c_srcspan <- newCString $ showSDoc dflags (ppr srcspan)
+  c_mkCostCentre c_name c_module c_srcspan
+
+foreign import ccall unsafe "mkCostCentre"
+  c_mkCostCentre :: Ptr CChar -> Ptr CChar -> Ptr CChar -> IO (Ptr CCostCentre)
+#else
+mkCostCentre _ _ _ = return nullPtr
+#endif
