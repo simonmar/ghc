@@ -22,8 +22,7 @@ import StgCmmMonad
 import StgCmmEnv
 import StgCmmCon
 import StgCmmHeap
-import StgCmmProf (curCCS, ldvEnterClosure, enterCostCentreFun, enterCostCentreThunk,
-                   initUpdFrameProf)
+import StgCmmProf
 import StgCmmTicky
 import StgCmmLayout
 import StgCmmUtils
@@ -558,7 +557,7 @@ mkSlowEntryCode bndr cl_info arg_regs -- function closure is already in `Node'
 -----------------------------------------
 thunkCode :: ClosureInfo -> [(NonVoid Id, ByteOff)] -> CostCentreStack
           -> LocalReg -> Int -> StgExpr -> FCode ()
-thunkCode cl_info fv_details _cc node arity body
+thunkCode cl_info fv_details ccs node arity body
   = do { dflags <- getDynFlags
        ; let node_points = nodeMustPointToIt dflags (closureLFInfo cl_info)
              node'       = if node_points then Just node else Nothing
@@ -579,7 +578,10 @@ thunkCode cl_info fv_details _cc node arity body
             -- in update frame CAF/DICT functions will be
             -- subsumed by this enclosing cc
             do { tickyEnterThunk cl_info
-               ; enterCostCentreThunk (CmmReg nodeReg)
+               ; case () of
+                   _ | Just cc <- maybeSingletonCCS ccs, isCafCC cc
+                      -> emitSetCCC cc True True
+                     | otherwise -> enterCostCentreThunk (CmmReg nodeReg)
                ; let lf_info = closureLFInfo cl_info
                ; fv_bindings <- mapM bind_fv fv_details
                ; load_fvs node lf_info fv_bindings
