@@ -30,6 +30,7 @@
 #include "Proftimer.h"
 #include "GetEnv.h"
 #include "Stable.h"
+#include "Profiling.h"
 
 #if !defined(mingw32_HOST_OS)
 #include "posix/Signals.h"
@@ -1089,10 +1090,25 @@ typedef struct _RtsSymbolVal {
       SymI_HasProto(stg_INTLIKE_closure)
 #endif
 
+#if defined(PROFILING)
+#define RTS_PROF_SYMBOLS                        \
+      SymI_HasProto(CCS_DONT_CARE)              \
+      SymI_HasProto(CC_LIST)                    \
+      SymI_HasProto(CC_ID)                      \
+      SymI_HasProto(CCS_LIST)                   \
+      SymI_HasProto(CCS_ID)                     \
+      SymI_HasProto(stg_restore_cccs_info)      \
+      SymI_HasProto(enterFunCCS)                \
+      SymI_HasProto(pushCostCentre)             \
+      SymI_HasProto(era)
+#else
+#define RTS_PROF_SYMBOLS /* empty */
+#endif
 
 #define RTS_SYMBOLS                                                     \
       Maybe_Stable_Names                                                \
       RTS_TICKY_SYMBOLS                                                 \
+      RTS_PROF_SYMBOLS                                                  \
       SymI_HasProto(StgReturn)                                          \
       SymI_HasProto(stg_gc_noregs)                                      \
       SymI_HasProto(stg_ret_v_info)                                     \
@@ -3062,9 +3078,15 @@ static HsInt loadArchive_ (pathchar *path)
         IF_DEBUG(linker,
                  debugBelch("loadArchive: Found member file `%s'\n", fileName));
 
-        isObject = thisFileNameSize >= 2
-                && fileName[thisFileNameSize - 2] == '.'
-                && fileName[thisFileNameSize - 1] == 'o';
+        isObject =
+               (thisFileNameSize >= 2 &&
+                fileName[thisFileNameSize - 2] == '.' &&
+                fileName[thisFileNameSize - 1] == 'o')
+            || (thisFileNameSize >= 4 &&
+                fileName[thisFileNameSize - 4] == '.' &&
+                fileName[thisFileNameSize - 3] == 'p' &&
+                fileName[thisFileNameSize - 2] == '_' &&
+                fileName[thisFileNameSize - 1] == 'o');
 
         IF_DEBUG(linker, debugBelch("loadArchive: \tthisFileNameSize = %d\n", (int)thisFileNameSize));
         IF_DEBUG(linker, debugBelch("loadArchive: \tisObject = %d\n", isObject));
@@ -3495,6 +3517,12 @@ static HsInt resolveObjs_ (void)
             oc->status = OBJECT_RESOLVED;
         }
     }
+
+#ifdef PROFILING
+    // collect any new cost centres & CCSs that were defined during runInit
+    initProfiling2();
+#endif
+
     IF_DEBUG(linker, debugBelch("resolveObjs: done\n"));
     return 1;
 }

@@ -139,8 +139,7 @@ static  void              initProfilingLogFile ( void );
    Initialise the profiling environment
    -------------------------------------------------------------------------- */
 
-void
-initProfiling1 (void)
+void initProfiling (void)
 {
     // initialise our arena
     prof_arena = newArena();
@@ -156,18 +155,6 @@ initProfiling1 (void)
 #ifdef THREADED_RTS
     initMutex(&ccs_mutex);
 #endif
-}
-
-void
-freeProfiling (void)
-{
-    arenaFree(prof_arena);
-}
-
-void
-initProfiling2 (void)
-{
-    CostCentreStack *ccs, *next;
 
     /* Set up the log file, and dump the header and cost centre
      * information into it.
@@ -202,14 +189,7 @@ initProfiling2 (void)
     CCS_MAIN->root = CCS_MAIN;
     ccsSetSelected(CCS_MAIN);
 
-    // make CCS_MAIN the parent of all the pre-defined CCSs.
-    for (ccs = CCS_LIST; ccs != NULL; ) {
-        next = ccs->prevStack;
-        ccs->prevStack = NULL;
-        actualPush_(CCS_MAIN,ccs->cc,ccs);
-        ccs->root = ccs;
-        ccs = next;
-    }
+    initProfiling2();
 
     if (RtsFlags.CcFlags.doCostCentres) {
         initTimeProfiling();
@@ -220,6 +200,29 @@ initProfiling2 (void)
     }
 }
 
+//
+// Should be called after loading any new Haskell code.
+//
+void initProfiling2 (void)
+{
+    CostCentreStack *ccs, *next;
+
+    // make CCS_MAIN the parent of all the pre-defined CCSs.
+    for (ccs = CCS_LIST; ccs != NULL; ) {
+        next = ccs->prevStack;
+        ccs->prevStack = NULL;
+        actualPush_(CCS_MAIN,ccs->cc,ccs);
+        ccs->root = ccs;
+        ccs = next;
+    }
+    CCS_LIST = NULL;
+}
+
+void
+freeProfiling (void)
+{
+    arenaFree(prof_arena);
+}
 
 static void
 initProfilingLogFile(void)

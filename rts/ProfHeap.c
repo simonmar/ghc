@@ -302,7 +302,7 @@ nextEra( void )
 FILE *hp_file;
 static char *hp_filename;
 
-void initProfiling1 (void)
+void initProfiling (void)
 {
 }
 
