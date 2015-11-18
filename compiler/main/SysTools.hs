@@ -305,6 +305,8 @@ initSysTools mbMinusB
        lc_prog <- getSetting "LLVM llc command"
        lo_prog <- getSetting "LLVM opt command"
 
+       let iserv_prog = installed "iserv"
+
        let platform = Platform {
                           platformArch = targetArch,
                           platformOS   = targetOS,
@@ -344,6 +346,7 @@ initSysTools mbMinusB
                     sPgm_libtool = libtool_path,
                     sPgm_lo  = (lo_prog,[]),
                     sPgm_lc  = (lc_prog,[]),
+                    sPgm_i   = iserv_prog,
                     sOpt_L       = [],
                     sOpt_P       = [],
                     sOpt_F       = [],
@@ -353,6 +356,7 @@ initSysTools mbMinusB
                     sOpt_windres = [],
                     sOpt_lo      = [],
                     sOpt_lc      = [],
+                    sOpt_i       = [],
                     sPlatformConstants = platformConstants
              }
 
