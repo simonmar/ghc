@@ -8,7 +8,8 @@ Stopped at <exception thrown>
 _exception :: e = _
 _exception = SomeException
                (IOError Nothing UserError [] "error" Nothing Nothing)
-*** Exception: user error (error)
+Stopped at <exception thrown>
+_exception :: e = SomeException (IOError Nothing UserError ....)
 Stopped at <exception thrown>
 _exception :: e = _
 _exception = SomeException
