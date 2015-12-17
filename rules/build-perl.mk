@@ -37,7 +37,7 @@ ifneq "$$($$($1_$2_PROG)_INPLACE)" ""
 $$(error $$($1_$2_PROG)_INPLACE defined twice)
 endif
 ifeq "$$($1_$2_TOPDIR)" "YES"
-$$($1_$2_PROG)_INPLACE = $$(INPLACE_TOPDIR)/$$($1_$2_PROG)
+$$($1_$2_PROG)_INPLACE = $$(INPLACE_LIB)/bin/$$($1_$2_PROG)
 else
 $$($1_$2_PROG)_INPLACE = $$(INPLACE_BIN)/$$($1_$2_PROG)
 endif
@@ -72,8 +72,11 @@ endif
 endif
 
 ifeq "$$($1_$2_INSTALL)" "YES"
+# Don't add to INSTALL_BINS or INSTALL_LIBEXECS, because they will get
+# stripped when calling 'make install-strip', and stripping a Perl script
+# doesn't work.
 ifeq "$$($1_$2_TOPDIR)" "YES"
-INSTALL_TOPDIRS  += $$($1_$2_INPLACE)
+INSTALL_LIBEXEC_SCRIPTS += $$($1_$2_INPLACE)
 else
 INSTALL_BINS     += $$($1_$2_INPLACE)
 endif

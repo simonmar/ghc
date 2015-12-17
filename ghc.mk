@@ -830,7 +830,7 @@ TAGS: TAGS_compiler
 # Installation
 
 install: install_libs install_packages install_libexecs \
-         install_bins install_topdirs
+         install_bins install_libexec_scripts
 ifeq "$(HADDOCK_DOCS)" "YES"
 install: install_docs
 endif
@@ -881,11 +881,13 @@ ifeq "$(Windows_Host)" "NO"
 endif
 endif
 
-install_topdirs: $(INSTALL_TOPDIRS)
-	$(call INSTALL_DIR,"$(DESTDIR)$(topdir)")
-	for i in $(INSTALL_TOPDIRS); do \
-		$(call INSTALL_PROGRAM,$(INSTALL_BIN_OPTS),$$i,"$(DESTDIR)$(topdir)"); \
+install_libexec_scripts: $(INSTALL_LIBEXEC_SCRIPTS)
+ifneq "$(INSTALL_LIBEXEC_SCRIPTS)" ""
+	$(INSTALL_DIR) "$(DESTDIR)$(ghclibexecdir)/bin"
+	for i in $(INSTALL_LIBEXEC_SCRIPTS); do \
+		$(INSTALL_SCRIPT) $(INSTALL_OPTS) $$i "$(DESTDIR)$(ghclibexecdir)/bin"; \
 	done
+endif
 
 install_docs: $(INSTALL_DOCS)
 	$(call INSTALL_DIR,"$(DESTDIR)$(docdir)")
@@ -998,7 +1000,6 @@ $(eval $(call bindist,.,\
     $(libffi_HEADERS) \
     $(INSTALL_LIBEXECS) \
     $(INSTALL_LIBEXEC_SCRIPTS) \
-    $(INSTALL_TOPDIRS) \
     $(INSTALL_BINS) \
     $(INSTALL_MANPAGES) \
     $(INSTALL_DOCS) \
