@@ -12,6 +12,7 @@ module ErrUtils (
 
         ErrMsg, WarnMsg, Severity(..),
         Messages, ErrorMessages, WarningMessages,
+        unionMessages,
         errMsgSpan, errMsgContext, errMsgShortDoc, errMsgExtraInfo,
         mkLocMessage, pprMessageBag, pprErrMsgBag, pprErrMsgBagWithLoc,
         pprLocErrMsg, makeIntoWarning, isWarning,
@@ -40,7 +41,7 @@ module ErrUtils (
 
 #include "HsVersions.h"
 
-import Bag              ( Bag, bagToList, isEmptyBag, emptyBag )
+import Bag
 import Exception
 import Outputable
 import Panic
@@ -89,6 +90,10 @@ getInvalids vs = [d | NotValid d <- vs]
 type Messages        = (WarningMessages, ErrorMessages)
 type WarningMessages = Bag WarnMsg
 type ErrorMessages   = Bag ErrMsg
+
+unionMessages :: Messages -> Messages -> Messages
+unionMessages (warns1, errs1) (warns2, errs2) =
+  (warns1 `unionBags` warns2, errs1 `unionBags` errs2)
 
 data ErrMsg = ErrMsg {
         errMsgSpan      :: SrcSpan,
