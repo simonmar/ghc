@@ -208,7 +208,7 @@ compileOne' m_tc_result mHscMessage
                    _ -> do guts0 <- hscDesugar hsc_env summary tc_result
                            guts <- hscSimplify hsc_env guts0
                            (iface, _changed, details, cgguts) <- hscNormalIface hsc_env guts mb_old_hash
-                           (hasStub, comp_bc, modBreaks) <- hscInteractive hsc_env cgguts summary
+                           (hasStub, comp_bc) <- hscInteractive hsc_env cgguts summary
 
                            stub_o <- case hasStub of
                                      Nothing -> return []
@@ -216,7 +216,7 @@ compileOne' m_tc_result mHscMessage
                                          stub_o <- compileStub hsc_env stub_c
                                          return [DotO stub_o]
 
-                           let hs_unlinked = [BCOs comp_bc modBreaks]
+                           let hs_unlinked = [BCOs comp_bc]
                                unlinked_time = ms_hs_date summary
                              -- Why do we use the timestamp of the source file here,
                              -- rather than the current time?  This works better in

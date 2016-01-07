@@ -14,7 +14,8 @@ cabal-version: >=1.10
 
 Library
     Default-Language: Haskell2010
-    Exposed-Modules: GHCi.Message,
+    Exposed-Modules: GHCi.BreakArray,
+                     GHCi.Message,
                      GHCi.ResolvedBCO,
                      GHCi.RemoteTypes,
                      GHCi.ObjLink,

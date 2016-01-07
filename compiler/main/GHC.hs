@@ -143,7 +143,6 @@ module GHC (
         modInfoModBreaks,
         ModBreaks(..), BreakIndex,
         BreakInfo(breakInfo_number, breakInfo_module),
-        BreakArray, setBreakOn, setBreakOff, getBreak,
         InteractiveEval.back,
         InteractiveEval.forward,
 
@@ -287,8 +286,8 @@ module GHC (
 
 #ifdef GHCI
 import ByteCodeTypes
-import BreakArray
 import InteractiveEval
+import InteractiveEvalTypes
 import TcRnDriver       ( runTcInteractive )
 import GHCi
 import GHCi.RemoteTypes
