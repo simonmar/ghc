@@ -151,6 +151,12 @@ data Message a where
    -> Int                               -- index
    -> Message Bool                      -- True <=> enabled
 
+  -- Get a reference to a free variable at a breakpoint
+  GetBreakpointVar
+   :: HValueRef                         -- the AP_STACK from EvalBreak
+   -> Int
+   -> Message (Maybe HValueRef)
+
   -- Template Haskell -------------------------------------------
 
   -- Start a new TH module, return a state token that should be
@@ -341,26 +347,27 @@ getMessage = do
       26 -> Msg <$> (NewBreakArray <$> get)
       27 -> Msg <$> (EnableBreakpoint <$> get <*> get <*> get)
       28 -> Msg <$> (BreakpointStatus <$> get <*> get)
-      29 -> Msg <$> return StartTH
-      30 -> Msg <$> FinishTH <$> get
-      31 -> Msg <$> (RunTH <$> get <*> get <*> get <*> get)
-      32 -> Msg <$> NewName <$> get
-      33 -> Msg <$> (Report <$> get <*> get)
-      34 -> Msg <$> (LookupName <$> get <*> get)
-      35 -> Msg <$> Reify <$> get
-   -- 36 -> Msg <$> ReifyFixity <$> get
-      37 -> Msg <$> (ReifyInstances <$> get <*> get)
-      38 -> Msg <$> ReifyRoles <$> get
-      39 -> Msg <$> (ReifyAnnotations <$> get <*> get)
-      40 -> Msg <$> ReifyModule <$> get
-      41 -> Msg <$> AddDependentFile <$> get
-      42 -> Msg <$> AddTopDecls <$> get
-   -- 43 -> Msg <$> (IsExtEnabled <$> get)
-   -- 44 -> Msg <$> return ExtsEnabled
-      45 -> Msg <$> return StartRecover
-      46 -> Msg <$> EndRecover <$> get
-      47 -> Msg <$> return QDone
-      48 -> Msg <$> QException <$> get
+      29 -> Msg <$> (GetBreakpointVar <$> get <*> get)
+      30 -> Msg <$> return StartTH
+      31 -> Msg <$> FinishTH <$> get
+      32 -> Msg <$> (RunTH <$> get <*> get <*> get <*> get)
+      33 -> Msg <$> NewName <$> get
+      34 -> Msg <$> (Report <$> get <*> get)
+      35 -> Msg <$> (LookupName <$> get <*> get)
+      36 -> Msg <$> Reify <$> get
+   -- 37 -> Msg <$> ReifyFixity <$> get
+      38 -> Msg <$> (ReifyInstances <$> get <*> get)
+      39 -> Msg <$> ReifyRoles <$> get
+      40 -> Msg <$> (ReifyAnnotations <$> get <*> get)
+      41 -> Msg <$> ReifyModule <$> get
+      42 -> Msg <$> AddDependentFile <$> get
+      43 -> Msg <$> AddTopDecls <$> get
+   -- 44 -> Msg <$> (IsExtEnabled <$> get)
+   -- 45 -> Msg <$> return ExtsEnabled
+      46 -> Msg <$> return StartRecover
+      47 -> Msg <$> EndRecover <$> get
+      48 -> Msg <$> return QDone
+      49 -> Msg <$> QException <$> get
       _  -> Msg <$> QFail <$> get
 
 putMessage :: Message a -> Put
@@ -394,27 +401,28 @@ putMessage m = case m of
   NewBreakArray sz            -> putWord8 26 >> put sz
   EnableBreakpoint arr ix b   -> putWord8 27 >> put arr >> put ix >> put b
   BreakpointStatus arr ix     -> putWord8 28 >> put arr >> put ix
-  StartTH                     -> putWord8 29
-  FinishTH val                -> putWord8 30 >> put val
-  RunTH st q loc ty           -> putWord8 31 >> put st >> put q >> put loc >> put ty
-  NewName a                   -> putWord8 32 >> put a
-  Report a b                  -> putWord8 33 >> put a >> put b
-  LookupName a b              -> putWord8 34 >> put a >> put b
-  Reify a                     -> putWord8 35 >> put a
-  -- ReifyFixity a            -> putWord8 36 >> put a
-  ReifyInstances a b          -> putWord8 37 >> put a >> put b
-  ReifyRoles a                -> putWord8 38 >> put a
-  ReifyAnnotations a b        -> putWord8 39 >> put a >> put b
-  ReifyModule a               -> putWord8 40 >> put a
-  AddDependentFile a          -> putWord8 41 >> put a
-  AddTopDecls a               -> putWord8 42 >> put a
-  -- IsExtEnabled a           -> putWord8 43 >> put a
-  -- ExtsEnabled              -> putWord8 44
-  StartRecover                -> putWord8 45
-  EndRecover a                -> putWord8 46 >> put a
-  QDone                       -> putWord8 47
-  QException a                -> putWord8 48 >> put a
-  QFail a                     -> putWord8 49 >> put a
+  GetBreakpointVar a b        -> putWord8 29 >> put a >> put b
+  StartTH                     -> putWord8 30
+  FinishTH val                -> putWord8 31 >> put val
+  RunTH st q loc ty           -> putWord8 32 >> put st >> put q >> put loc >> put ty
+  NewName a                   -> putWord8 33 >> put a
+  Report a b                  -> putWord8 34 >> put a >> put b
+  LookupName a b              -> putWord8 35 >> put a >> put b
+  Reify a                     -> putWord8 36 >> put a
+  -- ReifyFixity a            -> putWord8 37 >> put a
+  ReifyInstances a b          -> putWord8 38 >> put a >> put b
+  ReifyRoles a                -> putWord8 39 >> put a
+  ReifyAnnotations a b        -> putWord8 40 >> put a >> put b
+  ReifyModule a               -> putWord8 41 >> put a
+  AddDependentFile a          -> putWord8 42 >> put a
+  AddTopDecls a               -> putWord8 43 >> put a
+  -- IsExtEnabled a           -> putWord8 44 >> put a
+  -- ExtsEnabled              -> putWord8 45
+  StartRecover                -> putWord8 46
+  EndRecover a                -> putWord8 47 >> put a
+  QDone                       -> putWord8 48
+  QException a                -> putWord8 49 >> put a
+  QFail a                     -> putWord8 50 >> put a
 
 -- -----------------------------------------------------------------------------
 -- Reading/writing messages

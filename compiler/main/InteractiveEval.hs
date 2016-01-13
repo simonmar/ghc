@@ -514,8 +514,8 @@ bindLocalsAtBreakpoint hsc_env apStack_fhv (Just BreakInfo{..}) = do
    -- has been accidentally evaluated, or something else has gone wrong.
    -- So that we don't fall over in a heap when this happens, just don't
    -- bind any free variables instead, and we emit a warning.
-   apStack <- wormhole (hsc_dflags hsc_env) apStack_fhv
-   mb_hValues <- mapM (getIdValFromApStack apStack) (map fromIntegral offsets)
+   mb_hValues <-
+      mapM (getBreakpointVar hsc_env apStack_fhv . fromIntegral) offsets
    let filtered_ids = [ id | (id, Just _hv) <- zip ids mb_hValues ]
    when (any isNothing mb_hValues) $
       debugTraceMsg (hsc_dflags hsc_env) 1 $
@@ -548,8 +548,7 @@ bindLocalsAtBreakpoint hsc_env apStack_fhv (Just BreakInfo{..}) = do
        ictxt0 = hsc_IC hsc_env
        ictxt1 = extendInteractiveContextWithIds ictxt0 final_ids
 
-   fhvs <- mapM (mkFinalizedHValue hsc_env <=< mkRemoteRef)
-             (catMaybes mb_hValues)
+   let fhvs = catMaybes mb_hValues
    Linker.extendLinkEnv (zip names fhvs)
    when result_ok $ Linker.extendLinkEnv [(result_name, apStack_fhv)]
    hsc_env1 <- rttiEnvironment hsc_env{ hsc_IC = ictxt1 }
@@ -609,16 +608,6 @@ rttiEnvironment hsc_env@HscEnv{hsc_IC=ic} = do
 
                  let ic' = substInteractiveContext ic subst
                  return hsc_env{hsc_IC=ic'}
-
-getIdValFromApStack :: HValue -> Int -> IO (Maybe HValue)
-getIdValFromApStack apStack (I# stackDepth) = do
-   case getApStackVal# apStack (stackDepth +# 1#) of
-                                -- The +1 is magic!  I don't know where it comes
-                                -- from, but this makes things line up.  --SDM
-        (# ok, result #) ->
-            case ok of
-              0# -> return Nothing -- AP_STACK not found
-              _  -> return (Just (unsafeCoerce# result))
 
 pushResume :: HscEnv -> Resume -> HscEnv
 pushResume hsc_env resume = hsc_env { hsc_IC = ictxt1 }

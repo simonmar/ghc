@@ -90,7 +90,7 @@ instance TH.Quasi GHCiQ where
     remoteCall (qsPipe s) (EndRecover False)
     return (r,s'))
       `catch`
-       \GHCiQException{} -> remoteCall (qsPipe s) (EndRecover True) >> h s
+       \e -> let _ = e :: GHCiQException in remoteCall (qsPipe s) (EndRecover True) >> h s
   qLookupName isType occ = ghcCmd (LookupName isType occ)
   qReify name = ghcCmd (Reify name)
   qReifyInstances name tys = ghcCmd (ReifyInstances name tys)
