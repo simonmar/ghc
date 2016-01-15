@@ -383,7 +383,7 @@ else
 # programs such as GHC and ghc-pkg, that we do not assume the stage0
 # compiler already has installed (or up-to-date enough).
 
-PACKAGES_STAGE0 = binary Cabal/Cabal hpc bin-package-db hoopl transformers
+PACKAGES_STAGE0 = binary Cabal/Cabal hpc ghc-boot bin-package-db hoopl transformers
 ifeq "$(Windows_Host)" "NO"
 ifneq "$(HostOS_CPP)" "ios"
 PACKAGES_STAGE0 += terminfo
@@ -414,6 +414,7 @@ PACKAGES_STAGE1 += pretty
 PACKAGES_STAGE1 += template-haskell
 PACKAGES_STAGE1 += binary
 PACKAGES_STAGE1 += Cabal/Cabal
+PACKAGES_STAGE1 += ghc-boot
 PACKAGES_STAGE1 += bin-package-db
 PACKAGES_STAGE1 += hoopl
 PACKAGES_STAGE1 += transformers
@@ -428,6 +429,7 @@ PACKAGES_STAGE1 += terminfo
 endif
 endif
 PACKAGES_STAGE1 += haskeline
+PACKAGES_STAGE1 += ghci
 
 # We normally install only the packages down to this point
 REGULAR_INSTALL_PACKAGES := $(addprefix libraries/,$(PACKAGES_STAGE1))
@@ -529,6 +531,9 @@ utils/ghc-pkg/dist-install/package-data.mk: compiler/stage2/package-data.mk
 utils/hsc2hs/dist-install/package-data.mk: compiler/stage2/package-data.mk
 utils/compare_sizes/dist-install/package-data.mk: compiler/stage2/package-data.mk
 utils/runghc/dist-install/package-data.mk: compiler/stage2/package-data.mk
+iserv/stage2/package-data.mk: compiler/stage2/package-data.mk
+iserv/stage2_p/package-data.mk: compiler/stage2/package-data.mk
+iserv/stage2_dyn/package-data.mk: compiler/stage2/package-data.mk
 utils/mkUserGuidePart/dist/package-data.mk: compiler/stage2/package-data.mk
 
 # add the final package.conf dependency: ghc-prim depends on RTS
@@ -690,6 +695,9 @@ BUILD_DIRS += docs/users_guide
 BUILD_DIRS += docs/man
 BUILD_DIRS += utils/count_lines
 BUILD_DIRS += utils/compare_sizes
+ifeq "$(Windows_Host)" "NO"
+BUILD_DIRS += iserv
+endif
 
 # ----------------------------------------------
 # Actually include all the sub-ghc.mk's
@@ -862,7 +870,9 @@ else
 	done
 # We rename ghc-stage2, so that the right program name is used in error
 # messages etc.
+ifeq "$(Windows_Host)" "NO"
 	"$(MV)" "$(DESTDIR)$(ghclibexecdir)/bin/ghc-stage$(INSTALL_GHC_STAGE)" "$(DESTDIR)$(ghclibexecdir)/bin/ghc"
+endif
 endif
 
 install_topdirs: $(INSTALL_TOPDIRS)
@@ -1014,7 +1024,7 @@ BIN_DIST_MK = $(BIN_DIST_PREP_DIR)/bindist.mk
 unix-binary-dist-prep:
 	$(call removeTrees,bindistprep/)
 	"$(MKDIRHIER)" $(BIN_DIST_PREP_DIR)
-	set -e; for i in packages LICENSE compiler ghc rts libraries utils docs libffi includes driver mk rules Makefile aclocal.m4 config.sub config.guess install-sh settings.in ghc.mk inplace distrib/configure.ac distrib/README distrib/INSTALL; do ln -s ../../$$i $(BIN_DIST_PREP_DIR)/; done
+	set -e; for i in packages LICENSE compiler ghc iserv rts libraries utils docs libffi includes driver mk rules Makefile aclocal.m4 config.sub config.guess install-sh settings.in ghc.mk inplace distrib/configure.ac distrib/README distrib/INSTALL; do ln -s ../../$$i $(BIN_DIST_PREP_DIR)/; done
 	echo "HADDOCK_DOCS       = $(HADDOCK_DOCS)"       >> $(BIN_DIST_MK)
 	echo "BUILD_DOCBOOK_HTML = $(BUILD_DOCBOOK_HTML)" >> $(BIN_DIST_MK)
 	echo "BUILD_DOCBOOK_PS   = $(BUILD_DOCBOOK_PS)"   >> $(BIN_DIST_MK)
@@ -1424,4 +1434,3 @@ phase_0_builds: $(utils/deriveConstants_dist_depfile_c_asm)
 
 .PHONY: phase_1_builds
 phase_1_builds: $(PACKAGE_DATA_MKS)
-

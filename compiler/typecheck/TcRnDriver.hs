@@ -24,7 +24,7 @@ module TcRnDriver (
     ) where
 
 #ifdef GHCI
-import {-# SOURCE #-} TcSplice ( runQuasi, traceSplice, SpliceInfo(..) )
+import {-# SOURCE #-} TcSplice ( finishTH, traceSplice, SpliceInfo(..) )
 import RnSplice ( rnTopSpliceDecls )
 #endif
 
@@ -587,11 +587,7 @@ tc_rn_src_decls boot_details ds
         case group_tail of
           { Nothing -> do { tcg_env <- checkMain       -- Check for `main'
 #ifdef GHCI
-                            -- Run all module finalizers
-                          ; th_modfinalizers_var <- fmap tcg_th_modfinalizers getGblEnv
-                          ; modfinalizers <- readTcRef th_modfinalizers_var
-                          ; writeTcRef th_modfinalizers_var []
-                          ; mapM_ runQuasi modfinalizers
+                          ; finishTH
 #endif /* GHCI */
                           ; return (tcg_env, tcl_env)
                           }

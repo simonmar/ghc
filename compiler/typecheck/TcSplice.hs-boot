@@ -45,6 +45,7 @@ runMetaD :: LHsExpr Id -> TcM [LHsDecl RdrName]
 
 lookupThName_maybe :: TH.Name -> TcM (Maybe Name)
 runQuasi :: TH.Q a -> TcM a
+finishTH :: TcM ()
 
 data SpliceInfo
   = SpliceInfo

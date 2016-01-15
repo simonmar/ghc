@@ -88,6 +88,7 @@ import Util
 import Platform
 import Pretty           ( Doc, Mode(..) )
 import Panic
+import GHC.Serialized
 
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
@@ -790,6 +791,9 @@ class Outputable a => OutputableBndr a where
       -- Print an occurrence of the name, suitable either in the
       -- prefix position of an application, thus   (f a b) or  ((+) x)
       -- or infix position,                 thus   (a `f` b) or  (x + y)
+
+instance Outputable Serialized where
+    ppr (Serialized the_type bytes) = int (length bytes) <+> ptext (sLit "of type") <+> text (show the_type)
 
 {-
 ************************************************************************

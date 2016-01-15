@@ -1,3 +1,5 @@
+{-# LANGUAGE CPP, UnboxedTuples, MagicHash #-}
+{-# OPTIONS_GHC -fno-warn-name-shadowing #-}
 --
 --  (c) The University of Glasgow 2002-2006
 --
@@ -8,40 +10,32 @@
 
 -- | Primarily, this module consists of an interface to the C-land
 -- dynamic linker.
-module ObjLink (
-   initObjLinker,        -- :: IO ()
-   loadDLL,              -- :: String -> IO (Maybe String)
-   loadArchive,          -- :: String -> IO ()
-   loadObj,              -- :: String -> IO ()
-   unloadObj,            -- :: String -> IO ()
-   insertSymbol,         -- :: String -> String -> Ptr a -> IO ()
-   lookupSymbol,         -- :: String -> IO (Maybe (Ptr a))
-   resolveObjs           -- :: IO SuccessFlag
+module GHCi.ObjLink
+  ( initObjLinker
+  , loadDLL
+  , loadArchive
+  , loadObj
+  , unloadObj
+  , lookupSymbol
+  , lookupClosure
+  , resolveObjs
+  , addLibrarySearchPath
+  , removeLibrarySearchPath
+  , findSystemLibrary
   )  where
 
-import Panic
-import BasicTypes       ( SuccessFlag, successIf )
-import Config           ( cLeadingUnderscore )
-import Util
-
+import GHCi.RemoteTypes
 import Control.Monad    ( when )
 import Foreign.C
+import Foreign.Marshal.Alloc ( free )
 import Foreign          ( nullPtr )
-import GHC.Exts         ( Ptr(..) )
+import GHC.Exts
 import System.Posix.Internals ( CFilePath, withFilePath )
-import System.FilePath  ( dropExtension )
-
+import System.FilePath  ( dropExtension, normalise )
 
 -- ---------------------------------------------------------------------------
 -- RTS Linker Interface
 -- ---------------------------------------------------------------------------
-
-insertSymbol :: String -> String -> Ptr a -> IO ()
-insertSymbol obj_name key symbol
-    = let str = prefixUnderscore key
-      in withFilePath obj_name $ \c_obj_name ->
-         withCAString str $ \c_str ->
-          c_insertSymbol c_obj_name c_str symbol
 
 lookupSymbol :: String -> IO (Maybe (Ptr a))
 lookupSymbol str_in = do
@@ -52,10 +46,18 @@ lookupSymbol str_in = do
         then return Nothing
         else return (Just addr)
 
+lookupClosure :: String -> IO (Maybe HValueRef)
+lookupClosure str = do
+  m <- lookupSymbol str
+  case m of
+    Nothing -> return Nothing
+    Just (Ptr addr) -> case addrToAny# addr of
+      (# a #) -> Just <$> mkHValueRef (HValue a)
+
 prefixUnderscore :: String -> String
 prefixUnderscore
- | cLeadingUnderscore == "YES" = ('_':)
- | otherwise                   = id
+ | cLeadingUnderscore = ('_':)
+ | otherwise          = id
 
 -- | loadDLL loads a dynamic library using the OS's native linker
 -- (i.e. dlopen() on Unix, LoadLibrary() on Windows).  It takes either
@@ -75,44 +77,72 @@ loadDLL str0 = do
      str | isWindowsHost = dropExtension str0
          | otherwise     = str0
   --
-  maybe_errmsg <- withFilePath str $ \dll -> c_addDLL dll
+  maybe_errmsg <- withFilePath (normalise str) $ \dll -> c_addDLL dll
   if maybe_errmsg == nullPtr
         then return Nothing
         else do str <- peekCString maybe_errmsg
+                free maybe_errmsg
                 return (Just str)
 
 loadArchive :: String -> IO ()
 loadArchive str = do
    withFilePath str $ \c_str -> do
      r <- c_loadArchive c_str
-     when (r == 0) (panic ("loadArchive " ++ show str ++ ": failed"))
+     when (r == 0) (error ("loadArchive " ++ show str ++ ": failed"))
 
 loadObj :: String -> IO ()
 loadObj str = do
    withFilePath str $ \c_str -> do
      r <- c_loadObj c_str
-     when (r == 0) (panic ("loadObj " ++ show str ++ ": failed"))
+     when (r == 0) (error ("loadObj " ++ show str ++ ": failed"))
 
 unloadObj :: String -> IO ()
 unloadObj str =
    withFilePath str $ \c_str -> do
      r <- c_unloadObj c_str
-     when (r == 0) (panic ("unloadObj " ++ show str ++ ": failed"))
+     when (r == 0) (error ("unloadObj " ++ show str ++ ": failed"))
 
-resolveObjs :: IO SuccessFlag
+addLibrarySearchPath :: String -> IO (Ptr ())
+addLibrarySearchPath _ = error "addLibrarySearchPath unimplemented in GHC 7.10"
+
+removeLibrarySearchPath :: Ptr () -> IO Bool
+removeLibrarySearchPath = error "removeLibrarySearchPath unimplemented in GHC 7.10"
+
+findSystemLibrary :: String -> IO (Maybe String)
+findSystemLibrary _ = error "findSystemLibrary unimplemented in GHC 7.10"
+
+resolveObjs :: IO Bool
 resolveObjs = do
    r <- c_resolveObjs
-   return (successIf (r /= 0))
+   return (r /= 0)
 
 -- ---------------------------------------------------------------------------
 -- Foreign declarations to RTS entry points which does the real work;
 -- ---------------------------------------------------------------------------
 
-foreign import ccall unsafe "addDLL"       c_addDLL :: CFilePath -> IO CString
-foreign import ccall unsafe "initLinker"   initObjLinker :: IO ()
-foreign import ccall unsafe "insertSymbol" c_insertSymbol :: CFilePath -> CString -> Ptr a -> IO ()
-foreign import ccall unsafe "lookupSymbol" c_lookupSymbol :: CString -> IO (Ptr a)
-foreign import ccall unsafe "loadArchive"  c_loadArchive :: CFilePath -> IO Int
-foreign import ccall unsafe "loadObj"      c_loadObj :: CFilePath -> IO Int
-foreign import ccall unsafe "unloadObj"    c_unloadObj :: CFilePath -> IO Int
-foreign import ccall unsafe "resolveObjs"  c_resolveObjs :: IO Int
+foreign import ccall unsafe "addDLL"                  c_addDLL                  :: CFilePath -> IO CString
+foreign import ccall unsafe "initLinker"              initObjLinker             :: IO ()
+foreign import ccall unsafe "lookupSymbol"            c_lookupSymbol            :: CString -> IO (Ptr a)
+foreign import ccall unsafe "loadArchive"             c_loadArchive             :: CFilePath -> IO Int
+foreign import ccall unsafe "loadObj"                 c_loadObj                 :: CFilePath -> IO Int
+foreign import ccall unsafe "unloadObj"               c_unloadObj               :: CFilePath -> IO Int
+foreign import ccall unsafe "resolveObjs"             c_resolveObjs             :: IO Int
+
+-- -----------------------------------------------------------------------------
+-- Configuration
+
+#include "ghcautoconf.h"
+
+cLeadingUnderscore :: Bool
+#ifdef LEADING_UNDERSCORE
+cLeadingUnderscore = True
+#else
+cLeadingUnderscore = False
+#endif
+
+isWindowsHost :: Bool
+#if mingw32_HOST_OS
+isWindowsHost = True
+#else
+isWindowsHost = False
+#endif

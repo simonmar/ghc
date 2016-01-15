@@ -84,8 +84,6 @@ module BasicTypes(
 
         FractionalLit(..), negateFractionalLit, integralFractionalLit,
 
-        HValue(..),
-
         SourceText
    ) where
 
@@ -95,7 +93,6 @@ import SrcLoc ( Located,unLoc )
 
 import Data.Data hiding (Fixity)
 import Data.Function (on)
-import GHC.Exts (Any)
 
 {-
 ************************************************************************
@@ -1109,5 +1106,3 @@ instance Ord FractionalLit where
 
 instance Outputable FractionalLit where
   ppr = text . fl_text
-
-newtype HValue = HValue Any

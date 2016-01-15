@@ -11,7 +11,6 @@ Thumbs.db
 *.BAK
 *.orig
 *.prof
-*.rej
 
 *.hi
 *.hi-boot
@@ -68,6 +67,7 @@ _darcs/
 /ghc/stage1/
 /ghc/stage2/
 /ghc/stage3/
+/iserv/stage2*/
 
 # -----------------------------------------------------------------------------
 # specific generated files
@@ -116,6 +116,7 @@ _darcs/
 /libffi/package.conf.install.raw
 /libraries/bin-package-db/GNUmakefile
 /libraries/bin-package-db/ghc.mk
+/libraries/ghc-boot/GNUmakefile
 /libraries/bootstrapping.conf
 /libraries/prologue.txt
 /libraries/doc-index*.html

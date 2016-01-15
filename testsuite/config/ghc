@@ -30,7 +30,8 @@ config.other_ways         = ['prof',
                              'profllvm', 'profoptllvm', 'profthreadedllvm',
                              'threaded1llvm', 'threaded2llvm',
                              'dynllvm',
-                             'debug']
+                             'debug',
+                             'ghci-ext']
 
 if (ghc_with_native_codegen == 1):
     config.compile_ways.append('optasm')
@@ -113,10 +114,11 @@ config.way_flags = lambda name : {
     'profthreadedllvm' : ['-O', '-prof', '-static', '-auto-all', '-threaded', '-fllvm'],
     'threaded1llvm'    : ['-threaded', '-debug', '-fllvm'],
     'threaded2llvm'    : ['-O', '-threaded', '-eventlog', '-fllvm'],
-    'dynllvm'          : ['-O', '-dynamic', '-fllvm']
+    'dynllvm'          : ['-O', '-dynamic', '-fllvm'],
+    'ghci-ext'         : ['--interactive', '-v0', '-ignore-dot-ghci', '-fexternal-interpreter', '+RTS', '-I0.1', '-RTS'],
    }
 
-config.way_rts_flags = { 
+config.way_rts_flags = {
     'normal'       : [],
     'g1'           : ['-G1'],
     'optasm'       : [],
@@ -146,7 +148,8 @@ config.way_rts_flags = {
     'profthreadedllvm' : ['-p'],
     'threaded1llvm'    : [],
     'threaded2llvm'    : ['-N2 -ls'],
-    'dynllvm'          : []
+    'dynllvm'          : [],
+    'ghci-ext'         : [],
    }
 
 # Useful classes of ways that can be used with only_ways() and
@@ -222,4 +225,3 @@ def get_compiler_info():
         config.ghci_way_flags   = "-static"
         config.ghc_th_way       = "normal"
         config.ghc_plugin_way   = "normal"
-

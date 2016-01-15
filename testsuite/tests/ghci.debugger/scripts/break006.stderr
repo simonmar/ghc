@@ -11,7 +11,7 @@
         -- Defined in ‘Data.Proxy’
       instance (GHC.Arr.Ix a, Show a, Show b) => Show (GHC.Arr.Array a b)
         -- Defined in ‘GHC.Arr’
-      ...plus 25 others
+      ...plus 31 others
     In a stmt of an interactive GHCi command: print it
 
 <interactive>:8:1:
@@ -26,5 +26,5 @@
         -- Defined in ‘Data.Proxy’
       instance (GHC.Arr.Ix a, Show a, Show b) => Show (GHC.Arr.Array a b)
         -- Defined in ‘GHC.Arr’
-      ...plus 25 others
+      ...plus 31 others
     In a stmt of an interactive GHCi command: print it

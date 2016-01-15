@@ -86,6 +86,7 @@ import System.IO as IO
 import System.IO.Unsafe         ( unsafeInterleaveIO )
 import System.IO.Error          ( mkIOError, eofErrorType )
 import GHC.Real                 ( Ratio(..) )
+import GHC.Serialized
 import ExtsCompat46
 import GHC.Word                 ( Word8(..) )
 
@@ -936,3 +937,12 @@ instance Binary SrcSpan where
                                       (mkSrcLoc f el ec))
             _ -> do s <- get bh
                     return (UnhelpfulSpan s)
+
+instance Binary Serialized where
+    put_ bh (Serialized the_type bytes) = do
+        put_ bh the_type
+        put_ bh bytes
+    get bh = do
+        the_type <- get bh
+        bytes <- get bh
+        return (Serialized the_type bytes)

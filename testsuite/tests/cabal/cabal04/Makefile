@@ -23,4 +23,3 @@ endif
 
 clean :
 	$(RM) -r *.o *.hi dist Setup$(exeext) err
-

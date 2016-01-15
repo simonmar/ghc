@@ -23,6 +23,7 @@ module DynamicLoading (
 
 #ifdef GHCI
 import Linker           ( linkModule, getHValue )
+import GHCi             ( wormhole )
 import SrcLoc           ( noSrcSpan )
 import Finder           ( findImportedModule, cannotFindModule )
 import TcRnMonad        ( initTcInteractive, initIfaceTcRn )
@@ -37,7 +38,7 @@ import Plugins          ( Plugin, CommandLineOption )
 import PrelNames        ( pluginTyConName )
 
 import HscTypes
-import BasicTypes       ( HValue )
+import GHCi.RemoteTypes ( HValue )
 import TypeRep          ( mkTyConTy, pprTyThingCategory )
 import Type             ( Type, eqType )
 import TyCon            ( TyCon )
@@ -99,7 +100,7 @@ forceLoadModuleInterfaces :: HscEnv -> SDoc -> [Module] -> IO ()
 forceLoadModuleInterfaces hsc_env doc modules
     = (initTcInteractive hsc_env $
        initIfaceTcRn $
-       mapM_ (loadPluginInterface doc) modules) 
+       mapM_ (loadPluginInterface doc) modules)
       >> return ()
 
 -- | Force the interface for the module containing the name to be loaded. The 'SDoc' parameter is used
@@ -117,7 +118,7 @@ forceLoadNameModuleInterface hsc_env reason name = do
 forceLoadTyCon :: HscEnv -> Name -> IO TyCon
 forceLoadTyCon hsc_env con_name = do
     forceLoadNameModuleInterface hsc_env (ptext (sLit "contains a name used in an invocation of loadTyConTy")) con_name
-    
+
     mb_con_thing <- lookupTypeHscEnv hsc_env con_name
     case mb_con_thing of
         Nothing -> throwCmdLineErrorS dflags $ missingTyThingError con_name
@@ -164,7 +165,7 @@ getHValueSafely hsc_env val_name expected_type = do
                                    return ()
                     Nothing ->  return ()
                 -- Find the value that we just linked in and cast it given that we have proved it's type
-                hval <- getHValue hsc_env val_name
+                hval <- getHValue hsc_env val_name >>= wormhole dflags
                 return (Just hval)
              else return Nothing
         Just val_thing -> throwCmdLineErrorS dflags $ wrongTyThingError val_name val_thing

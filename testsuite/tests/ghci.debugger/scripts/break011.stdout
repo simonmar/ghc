@@ -20,4 +20,8 @@ _exception = SomeException "foo"
 _result :: a = _
 _exception :: SomeException = SomeException "foo"
 *** Exception: foo
+Stopped at <exception thrown>
+_exception :: e = SomeException "foo"
+Stopped at <exception thrown>
+_exception :: e = SomeException "foo"
 *** Exception: foo

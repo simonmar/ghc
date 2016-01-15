@@ -143,6 +143,7 @@ import Control.Monad (ap, liftM)
 import Data.Map      ( Map )
 import Data.Dynamic  ( Dynamic )
 import Data.Typeable ( TypeRep )
+import GHCi.RemoteTypes
 
 import qualified Language.Haskell.TH as TH
 #endif
@@ -451,6 +452,7 @@ data TcGblEnv
         -- ^ Template Haskell module finalizers
 
         tcg_th_state :: TcRef (Map TypeRep Dynamic),
+        tcg_th_remote_state :: TcRef (Maybe ForeignHValue),
         -- ^ Template Haskell state
 #endif /* GHCI */
 

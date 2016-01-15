@@ -929,25 +929,12 @@ def run_command( name, way, cmd ):
 # -----------------------------------------------------------------------------
 # GHCi tests
 
-def ghci_script_without_flag(flag):
-    def apply(name, way, script):
-        overrides = [f for f in getTestOpts().compiler_always_flags if f != flag]
-        return ghci_script_override_default_flags(overrides)(name, way, script)
-
-    return apply
-
-def ghci_script_override_default_flags(overrides):
-    def apply(name, way, script):
-        return ghci_script(name, way, script, overrides)
-
-    return apply
-
 def ghci_script( name, way, script, override_flags = None ):
     # filter out -fforce-recomp from compiler_always_flags, because we're
     # actually testing the recompilation behaviour in the GHCi tests.
     flags = ' '.join(get_compiler_flags(override_flags, noforce=True))
 
-    way_flags = '--interactive -v0 -ignore-dot-ghci'
+    way_flags = ' '.join(config.way_flags(name)[way])
 
     # We pass HC and HC_OPTS as environment variables, so that the
     # script can invoke the correct compiler by using ':! $HC $HC_OPTS'
@@ -1082,7 +1069,7 @@ def compile_and_run__( name, way, top_mod, extra_mods, extra_hc_opts ):
        return result
     extra_hc_opts = result['hc_opts']
 
-    if way == 'ghci': # interpreted...
+    if way.startswith('ghci'): # interpreted...
         return interpreter_run( name, way, extra_hc_opts, 0, top_mod )
     else: # compiled...
         force = 0
@@ -1163,7 +1150,7 @@ def checkStats(name, way, stats_file, range_fields):
                 display('    Actual      ' + full_name + ' ' + field + ':', val, '')
                 if val != expected:
                     display('    Deviation   ' + full_name + ' ' + field + ':', deviation, '%')
-                
+
     return result
 
 # -----------------------------------------------------------------------------
@@ -1977,7 +1964,7 @@ def addTestFilesWrittenHelper(name, fn):
                 pass
             else:
                 framework_fail(name, 'strace', "Can't understand strace line: " + line)
- 
+
 def checkForFilesWrittenProblems(file):
     foundProblem = False
 
