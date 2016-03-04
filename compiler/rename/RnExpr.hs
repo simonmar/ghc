@@ -50,6 +50,7 @@ import qualified GHC.LanguageExtensions as LangExt
 
 import Data.Ord
 import Data.Array
+import Text.Printf
 
 {-
 ************************************************************************
@@ -695,15 +696,6 @@ postProcessStmtsForApplicativeDo ctxt stmts
        ; if ado_is_on && is_do_expr
             then rearrangeForApplicativeDo ctxt stmts
             else noPostProcessStmts ctxt stmts }
-
-countApsStmts :: [ExprLStmt Name] -> Int
-countApsStmts = sum . map countAps
-
-countAps :: ExprLStmt Name -> Int
-countAps (L _ (ApplicativeStmt args _ _)) =
-  sum [ countApsStmts stmts | (_, ApplicativeArgMany stmts _ _) <- args ] +
-  length args - 1
-countAps _ = 0
 
 -- | strip the FreeVars annotations from statements
 noPostProcessStmts
@@ -1452,12 +1444,25 @@ rearrangeForApplicativeDo ctxt stmts0 = do
   optimal_ado <- goptM Opt_OptimalApplicativeDo
   let stmt_tree | optimal_ado = mkStmtTreeOptimal stmts
                 | otherwise = mkStmtTreeHeuristic stmts
+  pprTrace "ApplicativeDo" (
+     text (printf "stmts: %d, aps: %d, cost: %d"
+           (length stmts0) (countAps stmt_tree) (cost stmt_tree))) $ return ()
   stmtTreeToStmts ctxt stmt_tree [last] last_fvs
   where
     (stmts,(last,last_fvs)) = findLast stmts0
     findLast [] = error "findLast"
     findLast [last] = ([],last)
     findLast (x:xs) = (x:rest,last) where (rest,last) = findLast xs
+
+countAps :: StmtTree a -> Int
+countAps (StmtTreeBind l r) = countAps l + countAps r
+countAps (StmtTreeApplicative ts) = sum (map countAps ts) + length ts - 1
+countAps _ = 0
+
+cost :: StmtTree a -> Int
+cost (StmtTreeBind l r) = cost l + cost r
+cost (StmtTreeApplicative ts) = maximum (map cost ts)
+cost _ = 1
 
 -- | A tree of statements using a mixture of applicative and bind constructs.
 data StmtTree a
