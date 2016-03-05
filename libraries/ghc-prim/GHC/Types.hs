@@ -27,6 +27,9 @@ module GHC.Types (
 
 import GHC.Prim
 
+-- apparently necessary to avoid "attempting to use GHC.Tuple but it
+-- is not loaded" error from Haddock:
+import GHC.Tuple ()
 
 infixr 5 :
 

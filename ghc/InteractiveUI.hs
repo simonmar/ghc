@@ -1,5 +1,5 @@
 {-# LANGUAGE CPP, MagicHash, NondecreasingIndentation, TupleSections,
-             RecordWildCards #-}
+             RecordWildCards, BangPatterns #-}
 {-# OPTIONS -fno-cse #-}
 -- -fno-cse is needed for GLOBAL_VAR's to behave properly
 
@@ -3228,7 +3228,8 @@ showException se =
 
 ghciHandle :: (HasDynFlags m, ExceptionMonad m) => (SomeException -> m a) -> m a -> m a
 ghciHandle h m = gmask $ \restore -> do
-                 dflags <- getDynFlags
+                 -- Force dflags to avoid leaking the associated HscEnv
+                 !dflags <- getDynFlags
                  gcatch (restore (GHC.prettyPrintGhcErrors dflags m)) $ \e -> restore (h e)
 
 ghciTry :: GHCi a -> GHCi (Either SomeException a)

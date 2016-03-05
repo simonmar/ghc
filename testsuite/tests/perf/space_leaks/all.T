@@ -16,7 +16,7 @@ test('space_leak_001',
              # 2013-02-10 372072 (x86/OSX)
              # 2013-02-10 439228 (x86/OSX)
 
-      stats_num_field('bytes allocated', 
+      stats_num_field('bytes allocated',
            [ (wordsize(64), 11315747416, 5),
                         # expected value: 9079316016 (amd64/Linux)
                         #                 9331570416 (x86/Linux)
@@ -26,7 +26,7 @@ test('space_leak_001',
 
              (wordsize(32), 13550759068, 5),
             # 2014-12-01  13550759068 (Windows)
-              
+
             ]),
       omit_ways(['profasm','profthreaded','threaded1','threaded2'])
       ],
@@ -53,3 +53,14 @@ test('T2762',
 test('T4018',
      [ only_ways(['optasm']), extra_run_opts('+RTS -M10m -RTS') ],
      compile_and_run, ['-fno-state-hack'])
+
+test('T4029',
+     [stats_num_field('peak_megabytes_allocated',
+          [(wordsize(64), 42, 10)]),
+            # 2016-02-26: 66 (amd64/Linux)           INITIAL
+      stats_num_field('max_bytes_used',
+          [(wordsize(64), 15758848, 5)])
+            # 2016-02-26: 24071720 (amd64/Linux)     INITIAL
+      ],
+     ghci_script,
+     ['T4029.script'])
