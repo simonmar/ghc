@@ -73,6 +73,11 @@ typedef struct _GC_FLAGS {
                                  * to handle the exception before we
                                  * raise it again.
                                  */
+
+    rtsBool numa;               /* Use NUMA */
+    uint32_t nNumaNodes;        /* Number of nodes */
+    uint32_t numaMap[MAX_NUMA_NODES]; /* Map our internal node numbers to OS
+                                       * node numbers */
 } GC_FLAGS;
 
 /* See Note [Synchronization of flags and base APIs] */
@@ -93,6 +98,7 @@ typedef struct _DEBUG_FLAGS {
     rtsBool squeeze;        /* 'z'  stack squeezing & lazy blackholing */
     rtsBool hpc; 	    /* 'c' coverage */
     rtsBool sparks; 	    /* 'r' */
+    rtsBool numa; 	    /* '--debug-numa' */
 } DEBUG_FLAGS;
 
 /* See Note [Synchronization of flags and base APIs] */
@@ -184,13 +190,13 @@ typedef struct _MISC_FLAGS {
 #ifdef THREADED_RTS
 /* See Note [Synchronization of flags and base APIs] */
 typedef struct _PAR_FLAGS {
-  nat            nNodes;         /* number of threads to run simultaneously */
+  nat            nCapabilities;  /* number of threads to run simultaneously */
   rtsBool        migrate;        /* migrate threads between capabilities */
   nat            maxLocalSparks;
   rtsBool        parGcEnabled;   /* enable parallel GC */
   nat            parGcGen;       /* do parallel GC in this generation
                                   * and higher only */
-  rtsBool        parGcLoadBalancingEnabled; 
+  rtsBool        parGcLoadBalancingEnabled;
                                  /* enable load-balancing in the
                                   * parallel GC */
   nat            parGcLoadBalancingGen;
@@ -275,7 +281,7 @@ extern RTS_FLAGS RtsFlags;
 /*
  * The printf formats are here, so we are less likely to make
  * overly-long filenames (with disastrous results).  No more than 128
- * chars, please!  
+ * chars, please!
  */
 
 #define STATS_FILENAME_MAXLEN	128

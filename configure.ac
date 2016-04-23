@@ -1073,6 +1073,11 @@ if test "$use_large_address_space" = "yes" ; then
    AC_DEFINE([USE_LARGE_ADDRESS_SPACE], [1], [Enable single heap address space support])
 fi
 
+AC_CHECK_HEADERS([numa.h numaif.h])
+AC_CHECK_LIB(numa, numa_available,
+        [AC_DEFINE([HAVE_LIBNUMA], [1], [Define to 1 if you have libnuma.])]
+        [])
+
 if test "$HAVE_DOCBOOK_XSL" = "NO" ||
    test "$XsltprocCmd" = ""
 then

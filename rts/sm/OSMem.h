@@ -19,6 +19,10 @@ void osFreeAllMBlocks(void);
 W_ getPageSize (void);
 StgWord64 getPhysicalMemorySize (void);
 void setExecutable (void *p, W_ len, rtsBool exec);
+rtsBool osNumaAvailable(void);
+uint32_t osNumaNodes(void);
+StgWord osNumaMask(void);
+void osBindMBlocksToNode(void *addr, StgWord size, uint32_t node);
 
 #ifdef USE_LARGE_ADDRESS_SPACE
 

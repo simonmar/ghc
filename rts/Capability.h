@@ -36,6 +36,15 @@ struct Capability_ {
 
     nat no;  // capability number.
 
+    // The NUMA node on which this capability resides.  This is used to allocate
+    // node-local memory in allocate().
+    //
+    // Note: this is always equal to cap->no % RtsFlags.ParFlags.nNumaNodes.
+    // The reason we slice it this way is that if we add or remove capabilities
+    // via setNumCapabilities(), then we keep the number of capabilities on each
+    // NUMA node balanced.
+    uint32_t node;
+
     // The Task currently holding this Capability.  This task has
     // exclusive access to the contents of this Capability (apart from
     // returning_tasks_hd/returning_tasks_tl).
@@ -151,6 +160,8 @@ struct Capability_ {
   ;
 
 
+#define capNoToNumaNode(n) ((n) % RtsFlags.GcFlags.nNumaNodes)
+
 #if defined(THREADED_RTS)
 #define ASSERT_TASK_ID(task) ASSERT(task->id == osThreadId())
 #else
@@ -221,13 +232,7 @@ INLINE_HEADER void releaseCapability_ (Capability* cap STG_UNUSED,
 // extern nat enabled_capabilities;
 
 // Array of all the capabilities
-//
 extern Capability **capabilities;
-
-// The Capability that was last free.  Used as a good guess for where
-// to assign new threads.
-//
-extern Capability *last_free_capability;
 
 //
 // Types of global synchronisation
@@ -373,7 +378,7 @@ recordMutableCap (StgClosure *p, Capability *cap, nat gen)
     bd = cap->mut_lists[gen];
     if (bd->free >= bd->start + BLOCK_SIZE_W) {
         bdescr *new_bd;
-        new_bd = allocBlock_lock();
+        new_bd = allocBlockOnNode_lock(cap->node);
         new_bd->link = bd;
         bd = new_bd;
         cap->mut_lists[gen] = bd;

@@ -326,7 +326,6 @@
 #include "DerivedConstants.h"
 #include "rts/storage/ClosureTypes.h"
 #include "rts/storage/FunTypes.h"
-#include "rts/storage/SMPClosureOps.h"
 #include "rts/OSThreads.h"
 
 /*
