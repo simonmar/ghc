@@ -6324,7 +6324,7 @@ do_Elf_Rela_relocations ( ObjectCode* oc, char* ehdrC,
 
       IF_DEBUG(linker,debugBelch("Reloc: P = %p   S = %p   A = %p\n",
                                         (void*)P, (void*)S, (void*)A ));
-      /* checkProddableBlock ( oc, (void*)P ); */
+      checkProddableBlock(oc, (void*)P, sizeof(Elf_Word));
 
 #if defined(sparc_HOST_ARCH) || defined(ia64_HOST_ARCH) || defined(powerpc_HOST_ARCH) || defined(x86_64_HOST_ARCH)
       value = S + A;
