@@ -304,11 +304,11 @@ GarbageCollect (nat collect_gen,
   // and put them on the g0->large_object list.
   collect_pinned_object_blocks();
 
-  // Initialise all the generations/steps that we're collecting.
+  // Initialise all the generations that we're collecting.
   for (g = 0; g <= N; g++) {
       prepare_collected_gen(&generations[g]);
   }
-  // Initialise all the generations/steps that we're *not* collecting.
+  // Initialise all the generations that we're *not* collecting.
   for (g = N+1; g < RtsFlags.GcFlags.generations; g++) {
       prepare_uncollected_gen(&generations[g]);
   }
@@ -480,7 +480,7 @@ GarbageCollect (nat collect_gen,
       }
   }
 
-  // Run through all the generations/steps and tidy up.
+  // Run through all the generations and tidy up.
   // We're going to:
   //   - count the amount of "live" data (live_words, live_blocks)
   //   - count the amount of "copied" data in this GC (copied)
@@ -524,7 +524,7 @@ GarbageCollect (nat collect_gen,
     if (g <= N) {
 
         /* free old memory and shift to-space into from-space for all
-         * the collected steps (except the allocation area).  These
+         * the collected generations (except the allocation area).  These
          * freed blocks will probaby be quickly recycled.
          */
         if (gen->mark)
