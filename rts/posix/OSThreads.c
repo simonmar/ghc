@@ -321,7 +321,6 @@ setThreadAffinity (uint32_t n STG_UNUSED,
 #ifdef HAVE_NUMA_H
 void setThreadNode (uint32_t node)
 {
-    ASSERT(node < RtsFlags.GcFlags.nNumaNodes);
     if (numa_run_on_node(node) == -1) {
         sysErrorBelch("numa_run_on_node");
         stg_exit(1);
