@@ -9,9 +9,124 @@ Functions for working with the typechecker environment (setters, getters...).
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 
 module TcRnMonad(
-        module TcRnMonad,
-        module TcRnTypes,
-        module IOEnv
+  -- * Initalisation
+  initTc, initTcInteractive, initTcForLookup, initTcRnIf,
+
+  -- * Simple accessors
+  discardResult,
+  getTopEnv, getGblEnv, updGblEnv,
+  setGblEnv, getLclEnv, updLclEnv, setLclEnv,
+  getEnvs, setEnvs,
+  xoptM, doptM, goptM, woptM,
+  setXOptM, unsetGOptM, unsetWOptM,
+  whenDOptM, whenGOptM, whenWOptM, whenXOptM,
+  getGhcMode,
+  withDoDynamicToo,
+  getEpsVar,
+  getEps,
+  updateEps, updateEps_,
+  getHpt, getEpsAndHpt,
+
+  -- * Arrow scopes
+  newArrowScope, escapeArrowScope,
+
+  -- * Unique supply
+  newUnique, newUniqueSupply, newLocalName, newName,
+  newSysName, newSysLocalId, newSysLocalIds,
+
+  -- * Accessing input/output
+  newTcRef, readTcRef, writeTcRef, updTcRef, updTcRefX,
+
+  -- * Debugging
+  traceTc, traceRn, traceOptTcRn, traceTcRn,
+  getPrintUnqualified,
+  printForUserTcRn,
+  debugDumpTcRn,
+  traceIf, traceHiDiffs, traceOptIf,
+  debugTc,
+
+  -- * Typechecker global environment
+  setModule, getIsGHCi, getGHCiMonad, getInteractivePrintName,
+  tcIsHsBootOrSig, getGlobalRdrEnv,
+  getRdrEnvs, getImports,
+  getFixityEnv, extendFixityEnv, getRecFieldEnv,
+  getDeclaredDefaultTys,
+  addDependentFiles,
+
+  -- * Error management
+  getSrcSpanM, setSrcSpan, addLocM,
+  wrapLocM, wrapLocFstM, wrapLocSndM,
+  getErrsVar, setErrsVar,
+  addErr,
+  failWith,
+  addErrAt, addErrs,
+  checkErr,
+  addMessages,
+  discardWarnings,
+
+  -- * Shared error message stuff: renamer and typechecker
+  mkLongErrAt, addLongErrAt, reportErrors, reportError,
+  reportWarning, recoverM, mapAndRecoverM, mapAndReportM,
+  tryTc,
+  tryTcErrs, tryTcLIE, tryTcLIE_,
+  checkNoErrs, whenNoErrs,
+  ifErrsM, failIfErrsM,
+  checkTH, failTH,
+
+  -- * Context management for the type checker
+  getErrCtxt, setErrCtxt, addErrCtxt, addErrCtxtM, addLandmarkErrCtxt,
+  getCtLoc, setCtLoc, updCtxt, popErrCtxt,
+
+  -- * Error message generation (type checker)
+  addErrTc, addErrsTc,
+  addErrTcM, mkErrTcM,
+  failWithTc, failWithTcM,
+  checkTc,
+  warnIf, warnTc,
+  addWarnTc, addWarnTcM, addWarn, addWarnAt, add_warn,
+  tcInitTidyEnv, mkErrInfo,
+
+  -- * Type constraints
+  newTcEvBinds,
+  addTcEvBind,
+  getTcEvBinds,
+  chooseUniqueOccTc,
+  getConstraintVar, setConstraintVar,
+  emitConstraints, emitSimple, emitSimples,
+  emitImplication, emitImplications, emitInsoluble,
+  captureConstraints,
+  captureTcLevel,
+  pushLevelAndCaptureConstraints,
+  pushTcLevelM,
+  getTcLevel, setTcLevel, isTouchableTcM,
+  getLclTypeEnv, setLclTypeEnv,
+  traceTcConstraints,
+  emitWildcardHoleConstraints,
+
+  -- * Template Haskell context
+  recordThUse, recordThSpliceUse,
+  keepAlive, getStage, getStageAndBindLevel, setStage,
+
+  -- * Safe Haskell context
+  recordUnsafeInfer, finalSafeMode,
+
+  -- * Stuff for the renamer's local env
+  getLocalRdrEnv, setLocalRdrEnv,
+
+  -- * Stuff for interface decls
+  mkIfLclEnv,
+  initIfaceTcRn,
+  initIfaceCheck,
+  initIfaceTc,
+  initIfaceLcl,
+  getIfModule,
+  failIfM,
+  forkM_maybe,
+  forkM,
+
+  -- * Types etc.
+  module TcRnTypes,
+  module IOEnv
   ) where
 
 #include "HsVersions.h"
