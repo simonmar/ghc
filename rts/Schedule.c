@@ -1891,8 +1891,6 @@ delete_threads_and_gc:
         }
         task->cap = cap;
     }
-
-    stgFree(idle_cap);
 #endif
 
     if (heap_overflow && sched_state < SCHED_INTERRUPTING) {
@@ -1921,6 +1919,8 @@ delete_threads_and_gc:
 #endif
 
 #if defined(THREADED_RTS)
+    stgFree(idle_cap);
+
     if (gc_type == SYNC_GC_SEQ) {
         // release our stash of capabilities.
         releaseAllCapabilities(n_capabilities, cap, task);
