@@ -1431,42 +1431,6 @@ StgStablePtr foreignExportStablePtr (StgPtr p)
 }
 
 
-/* -----------------------------------------------------------------------------
- * Debugging aid: look in GHCi's object symbol tables for symbols
- * within DELTA bytes of the specified address, and show their names.
- */
-#ifdef DEBUG
-void ghci_enquire ( SymbolAddr* addr );
-
-void ghci_enquire(SymbolAddr* addr)
-{
-   int   i;
-   SymbolName* sym;
-   RtsSymbolInfo* a;
-   const int DELTA = 64;
-   ObjectCode* oc;
-
-   for (oc = objects; oc; oc = oc->next) {
-      for (i = 0; i < oc->n_symbols; i++) {
-         sym = oc->symbols[i];
-         if (sym == NULL) continue;
-         a = NULL;
-         if (a == NULL) {
-             ghciLookupSymbolInfo(symhash, sym, &a);
-         }
-         if (a == NULL) {
-             // debugBelch("ghci_enquire: can't find %s\n", sym);
-         }
-         else if (   a->value
-                  && (char*)addr-DELTA <= (char*)a->value
-                  && (char*)a->value <= (char*)addr+DELTA) {
-             debugBelch("%p + %3d  ==  `%s'\n", addr, (int)((char*)a->value - (char*)addr), sym);
-         }
-      }
-   }
-}
-#endif
-
 #if RTS_LINKER_USE_MMAP
 //
 // Returns NULL on failure.
@@ -2536,6 +2500,11 @@ int ocTryLoad (ObjectCode* oc) {
             return 0;
         }
     }
+
+    IF_DEBUG(linker,
+             oc->archiveMemberName
+               ? debugBelch("Resolving %s" "\n", oc->archiveMemberName)
+               : debugBelch("Resolving %" PATH_FMT "\n", oc->fileName));
 
 #           if defined(OBJFORMAT_ELF)
         r = ocResolve_ELF ( oc );
@@ -7117,3 +7086,60 @@ machoGetMisalignment( FILE * f )
 #endif
 
 #endif
+
+/* -----------------------------------------------------------------------------
+ * Debugging
+ *
+ * This functions can be called from inside gdb for inspecting the linker's
+ * symbol table.
+ * -------------------------------------------------------------------------- */
+
+#ifdef DEBUG
+void ghci_enquire(SymbolAddr* addr);
+void ghci_lookup(SymbolAddr *addr);
+
+//
+// Print out the object file/section that an address belongs to,
+// and the symbols nearby.
+//
+void ghci_lookup(SymbolAddr *addr)
+{
+    ObjectCode *oc;
+    const int DELTA = 64;
+
+    for (oc = objects; oc != NULL; oc = oc->next) {
+        for (int i = 0; i < oc->n_sections; i++) {
+            Section *section = &oc->sections[i];
+            if (addr > section->start &&
+                (StgWord)addr < (StgWord)section->start+section->size) {
+                debugBelch("%p is in ", addr);
+                if (oc->archiveMemberName) {
+                    debugBelch("%s", oc->archiveMemberName);
+                } else {
+                    debugBelch("%" PATH_FMT, oc->fileName);
+                }
+                debugBelch(", section %d, offset %" FMT_Word "\n", i,
+                           (StgWord)addr - (StgWord)section->start);
+            }
+
+            // Find the symbols nearby
+            for (int j = 0; j < oc->n_symbols; j++) {
+                SymbolName *sym = oc->symbols[j];
+                if (sym == NULL) continue;
+                RtsSymbolInfo* a;
+                ghciLookupSymbolInfo(symhash, sym, &a);
+                if (a
+                    && a->value
+                    && (char*)addr-DELTA <= (char*)a->value
+                    && (char*)a->value <= (char*)addr+DELTA) {
+                    debugBelch("%p + %3d  ==  `%s'\n", addr,
+                               (int)((char*)a->value - (char*)addr), sym);
+                }
+            }
+        }
+    }
+    // Also print out symbols that match this address
+    ghci_enquire(addr);
+}
+#endif
+
