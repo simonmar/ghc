@@ -108,6 +108,7 @@ import FastString
 import Outputable
 import Lexeme
 import Binary
+import Control.DeepSeq
 import Data.Char
 import Data.Data
 
@@ -263,6 +264,9 @@ instance Data OccName where
 
 instance HasOccName OccName where
   occName = id
+
+instance NFData OccName where
+  rnf x = x `seq` ()
 
 {-
 ************************************************************************

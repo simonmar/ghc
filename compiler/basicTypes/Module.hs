@@ -86,6 +86,7 @@ import Util
 import {-# SOURCE #-} Packages
 import GHC.PackageDb (BinaryStringRep(..))
 
+import Control.DeepSeq
 import Data.Data
 import Data.Map (Map)
 import qualified Data.Map as Map
@@ -191,6 +192,9 @@ instance Data ModuleName where
   gunfold _ _  = error "gunfold"
   dataTypeOf _ = mkNoRepType "ModuleName"
 
+instance NFData ModuleName where
+  rnf x = x `seq` ()
+
 stableModuleNameCmp :: ModuleName -> ModuleName -> Ordering
 -- ^ Compares module names lexically, rather than by their 'Unique's
 stableModuleNameCmp n1 n2 = moduleNameFS n1 `compare` moduleNameFS n2
@@ -257,6 +261,9 @@ instance Data Module where
   gunfold _ _  = error "gunfold"
   dataTypeOf _ = mkNoRepType "Module"
 
+instance NFData Module where
+  rnf x = x `seq` ()
+
 -- | This gives a stable ordering, as opposed to the Ord instance which
 -- gives an ordering based on the 'Unique's of the components, which may
 -- not be stable from run to run of the compiler.
@@ -319,6 +326,9 @@ instance Data PackageKey where
   toConstr _   = abstractConstr "PackageKey"
   gunfold _ _  = error "gunfold"
   dataTypeOf _ = mkNoRepType "PackageKey"
+
+instance NFData PackageKey where
+  rnf x = x `seq` ()
 
 stablePackageKeyCmp :: PackageKey -> PackageKey -> Ordering
 -- ^ Compares package ids lexically, rather than by their 'Unique's

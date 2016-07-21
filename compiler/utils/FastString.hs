@@ -1,6 +1,7 @@
 -- (c) The University of Glasgow, 1997-2006
 
-{-# LANGUAGE BangPatterns, CPP, DeriveDataTypeable, MagicHash, UnboxedTuples #-}
+{-# LANGUAGE BangPatterns, CPP, DeriveDataTypeable, MagicHash,
+    UnboxedTuples, GeneralizedNewtypeDeriving #-}
 {-# OPTIONS_GHC -O -funbox-strict-fields #-}
 -- We always optimise this, otherwise performance of a non-optimised
 -- compiler is severely affected
@@ -98,6 +99,7 @@ import FastFunctions
 import Panic
 import Util
 
+import Control.DeepSeq
 import Control.Monad
 import Data.ByteString (ByteString)
 import qualified Data.ByteString          as BS
@@ -150,6 +152,7 @@ hashByteString bs
 -- -----------------------------------------------------------------------------
 
 newtype FastZString = FastZString ByteString
+  deriving NFData
 
 hPutFZS :: Handle -> FastZString -> IO ()
 hPutFZS handle (FastZString bs) = BS.hPut handle bs

@@ -5,7 +5,7 @@
 \section[Name]{@Name@: to transmit name info from renamer to typechecker}
 -}
 
-{-# LANGUAGE DeriveDataTypeable #-}
+{-# LANGUAGE DeriveDataTypeable, RecordWildCards #-}
 
 -- |
 -- #name_types#
@@ -88,6 +88,7 @@ import FastTypes
 import FastString
 import Outputable
 
+import Control.DeepSeq
 import Data.Data
 
 {-
@@ -124,6 +125,18 @@ data NameSort
 
   | System              -- A system-defined Id or TyVar.  Typically the
                         -- OccName is very uninformative (like 's')
+
+instance NFData Name where
+  rnf Name{..} = rnf n_sort
+
+instance NFData NameSort where
+  rnf (External m) = rnf m
+  rnf (WiredIn m t b) = rnf m `seq` t `seq` b `seq` ()
+    -- XXX this is a *lie*, we're not going to rnf the TyThing, but
+    -- since the TyThings for WiredIn Names are all static they can't
+    -- be hiding space leaks or errors.
+  rnf Internal = ()
+  rnf System = ()
 
 -- | BuiltInSyntax is for things like @(:)@, @[]@ and tuples,
 -- which have special syntactic forms.  They aren't in scope

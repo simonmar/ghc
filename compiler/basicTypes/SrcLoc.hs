@@ -82,6 +82,7 @@ import Util
 import Outputable
 import FastString
 
+import Control.DeepSeq
 #if __GLASGOW_HASKELL__ < 709
 import Data.Foldable ( Foldable )
 import Data.Traversable ( Traversable )
@@ -276,6 +277,9 @@ data SrcSpan =
 
   deriving (Eq, Ord, Typeable, Show) -- Show is used by Lexer.x, because we
                                      -- derive Show for Token
+
+instance NFData SrcSpan where
+  rnf x = x `seq` ()
 
 -- | Built-in "bad" 'SrcSpan's for common sources of location uncertainty
 noSrcSpan, wiredInSrcSpan :: SrcSpan
