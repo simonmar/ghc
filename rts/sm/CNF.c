@@ -269,7 +269,7 @@ compactNew (Capability *cap, StgWord size)
     StgCompactNFData *self;
     bdescr *bd;
 
-    aligned_size = BLOCK_ROUND_UP(size + sizeof(StgCompactNFDataBlock)
+    aligned_size = BLOCK_ROUND_UP(size + sizeof(StgCompactNFData)
                                   + sizeof(StgCompactNFDataBlock));
     if (aligned_size >= BLOCK_SIZE * BLOCKS_PER_MBLOCK)
         aligned_size = BLOCK_SIZE * BLOCKS_PER_MBLOCK;
