@@ -288,7 +288,6 @@ compactNew (Capability *cap, StgWord size)
 
     bd = Bdescr((P_)block);
     bd->free = (StgPtr)((W_)self + sizeof(StgCompactNFData));
-    ASSERT (bd->free == (StgPtr)self + sizeofW(StgCompactNFData));
 
     self->totalW = bd->blocks * BLOCK_SIZE_W;
 
