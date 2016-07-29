@@ -278,7 +278,7 @@ compactNew (Capability *cap, StgWord size)
                                          ALLOCATE_NEW);
 
     self = firstBlockGetCompact(block);
-    SET_INFO((StgClosure*)self, &stg_COMPACT_NFDATA_info);
+    SET_HDR((StgClosure*)self, &stg_COMPACT_NFDATA_info, CCS_SYSTEM);
     self->totalDataW = aligned_size / sizeof(StgWord);
     self->autoBlockW = aligned_size / sizeof(StgWord);
     self->nursery = block;
