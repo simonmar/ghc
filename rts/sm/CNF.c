@@ -30,60 +30,115 @@
 #include <limits.h>
 #endif
 
-/**
- * Note [Compact Normal Forms]
- *
- * A Compact Normal Form, is at its essence a chain of memory blocks (multiple
- * of block allocator blocks) containing other closures inside.
- *
- * Each block starts with a header, of type StgCompactNFDataBlock, that points
- * to the first and to the next block in the chain. Right after the header
- * in the first block we have a closure of type StgCompactNFData, which holds
- * compact-wide metadata. This closure is the Compact# that Cmm and Haskell
- * see, and it's mostly a regular Haskell closure.
- *
- * Blocks are appended to the chain automatically as needed, or manually with a
- * compactResize() call, which also adjust the size of automatically appended
- * blocks.
- *
- * Objects can be appended to the block currently marked to the nursery, or any
- * of the later blocks if the nursery block is too full to fit the entire
- * object. For each block in the chain (which can be multiple block allocator
- * blocks), we use the bdescr of its beginning to store how full it is.
- * After an object is appended, it is scavenged for any outgoing pointers,
- * and all pointed to objects are appended, recursively, in a manner similar
- * to copying GC (further discussion in the note [Appending to a Compact])
- *
- * We also flag each bdescr in each block allocator block of a compact
- * (including those there were obtained as second or later from a single
- * allocGroup(n) call) with the BF_COMPACT. This allows the GC to quickly
- * realize that a given pointer is in a compact region, and trigger the
- * CNF path.
- *
- * These two facts combined mean that in any compact block where some object
- * begins bdescrs must be valid. For this simplicity this is achieved by
- * restricting the maximum size of a compact block to 252 block allocator
- * blocks (so that the total with the bdescr is one megablock).
- *
- * Compacts as a whole live in special list in each generation, where the
- * list is held through the bd->link field of the bdescr of the StgCompactNFData
- * closure (as for large objects). They live in a different list than large
- * objects because the operation to free them is different (all blocks in
- * a compact must be freed individually), and stats/sanity behavior are
- * slightly different. This is also the reason that compact allocates memory
- * using a special function instead of just calling allocate().
- *
- * Compacts are also suitable for network or disk serialization, and to
- * that extent they support a pointer fixup operation, which adjusts pointers
- * from a previous layout of the chain in memory to the new allocation.
- * This works by constructing a temporary binary search table (in the C heap)
- * of the old block addresses (which are known from the block header), and
- * then searching for each pointer in the table, and adjusting it.
- * It relies on ABI compatibility and static linking (or no ASLR) because it
- * does not attempt to reconstruct info tables, and uses info tables to detect
- * pointers. In practice this means only the exact same binary should be
- * used.
- */
+/*
+  Note [Compact Normal Forms]
+  ~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+  A compact normal form (CNF) is a region of memory containing one or more
+  Haskell data structures.  The goals are:
+
+  * The CNF lives or dies as a single unit as far as the GC is concerned.  The
+    GC does not traverse the data inside the CNF.
+
+  * A CNF can be "serialized" (stored on disk or transmitted over a network).
+    To "deserialize", all we need to do is adjust the addresses of the pointers
+    within the CNF ("fixup"),  Deserializing can only be done in the context of
+    the same Haskell binary that produced the CNF.
+
+  Structure
+  ~~~~~~~~~
+
+  * In Data.Compact.Internal we have
+    data Compact a = Compact Compact# a
+
+  * The Compact# primitive object is operated on by the primitives.
+
+  * A single CNF looks like this:
+
+  .---------,       .-------------------------------.        ,-------------
+  | Compact |    ,--+-> StgCompactNFDataBlock       |   ,--->| StgCompac...
+  +---------+    `--+--- self                       |   |    |   self
+  |    .----+-.  ,--+--- owner                      |   |    |   wner
+  +---------+ |  |  |    next ----------------------+---'    |   next -------->
+  |    .    | |  |  |-------------------------------+        +-------------
+  `----+----' `--+--+-> StgCompactNFData (Compact#) |        | more data...
+       |            |    totalW                     |        |
+       |            |    totalDataW                 |        |
+       |            |    autoblockW                 |        |
+       |            |    nursery                    |        |
+       |            |    last                       |        |
+       |            |-------------------------------|        |
+       `------------+--> data ...                   |        |
+                    |                               |        |
+                    |                               |        |
+                    `-------------------------------'        `-------------
+
+  * Each block in a CNF starts with a StgCompactNFDataBlock header
+
+  * The blocks in a CNF are chained through the next field
+
+  * Multiple CNFs are chained together using the bdescr->link and bdescr->u.prev
+    fields of the bdescr.
+
+  * The first block of a CNF (only) contains the StgCompactNFData (aka
+    Compact#), right after the StgCompactNFDataBlock header.
+
+  * The data inside a CNF block is ordinary closures
+
+  Invariants
+  ~~~~~~~~~~
+
+  (1) A CNF is self-contained.  The data within it does not have any external
+      pointers.
+
+  (2) A CNF contains only immutable data, no THUNKS or explicitly mutable
+      objects.  This helps maintain invariant (1).
+
+  Details
+  ~~~~~~~
+
+  Blocks are appended to the chain automatically as needed, or manually with a
+  compactResize() call, which also adjust the size of automatically appended
+  blocks.
+ 
+  Objects can be appended to the block currently marked to the nursery, or any
+  of the later blocks if the nursery block is too full to fit the entire
+  object. For each block in the chain (which can be multiple block allocator
+  blocks), we use the bdescr of its beginning to store how full it is.
+  After an object is appended, it is scavenged for any outgoing pointers,
+  and all pointed to objects are appended, recursively, in a manner similar
+  to copying GC (further discussion in the note [Appending to a Compact])
+ 
+  We also flag each bdescr in each block allocator block of a compact
+  (including those there were obtained as second or later from a single
+  allocGroup(n) call) with the BF_COMPACT. This allows the GC to quickly
+  realize that a given pointer is in a compact region, and trigger the
+  CNF path.
+ 
+  These two facts combined mean that in any compact block where some object
+  begins bdescrs must be valid. For this simplicity this is achieved by
+  restricting the maximum size of a compact block to 252 block allocator
+  blocks (so that the total with the bdescr is one megablock).
+ 
+  Compacts as a whole live in special list in each generation, where the
+  list is held through the bd->link field of the bdescr of the StgCompactNFData
+  closure (as for large objects). They live in a different list than large
+  objects because the operation to free them is different (all blocks in
+  a compact must be freed individually), and stats/sanity behavior are
+  slightly different. This is also the reason that compact allocates memory
+  using a special function instead of just calling allocate().
+ 
+  Compacts are also suitable for network or disk serialization, and to
+  that extent they support a pointer fixup operation, which adjusts pointers
+  from a previous layout of the chain in memory to the new allocation.
+  This works by constructing a temporary binary search table (in the C heap)
+  of the old block addresses (which are known from the block header), and
+  then searching for each pointer in the table, and adjusting it.
+  It relies on ABI compatibility and static linking (or no ASLR) because it
+  does not attempt to reconstruct info tables, and uses info tables to detect
+  pointers. In practice this means only the exact same binary should be
+  used.
+*/
 
 typedef enum {
     ALLOCATE_APPEND,

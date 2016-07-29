@@ -360,9 +360,9 @@ evacuate_static_object (StgClosure **link_field, StgClosure *q)
 /* ----------------------------------------------------------------------------
    Evacuate an object inside a CompactNFData
 
-   Don't actually evacuate the object. Instead, evacuate the structure
-   (which is a large object, so it is just relinked onto the new list
-   of large objects of the generation).
+   These are treated in a similar way to large objects.  We remove the block
+   from the compact_objects list of the generation it is on, and link it onto
+   the live_compact_objects list of the destination generation.
 
    It is assumed that objects in the struct live in the same generation
    as the struct itself all the time.
@@ -375,6 +375,9 @@ evacuate_compact (StgPtr p)
     generation *gen, *new_gen;
     uint32_t gen_no, new_gen_no;
 
+    // We need to find the Compact# corresponding to this pointer, because it
+    // will give us the first block in the compact chain, which is the one we
+    // that gets linked onto the compact_objects list.
     str = objectGetCompact((StgClosure*)p);
     ASSERT(get_itbl((StgClosure*)str)->type == COMPACT_NFDATA);
 

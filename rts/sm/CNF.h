@@ -40,6 +40,8 @@ StgCompactNFDataBlock *compactAllocateBlock(Capability            *cap,
 StgPtr                 compactFixupPointers(StgCompactNFData      *str,
                                             StgClosure            *root);
 
+// Go from an arbitrary pointer into any block of a compact chain, to the
+// StgCompactNFDataBlock at the beginning of the block.
 INLINE_HEADER StgCompactNFDataBlock *objectGetCompactBlock (StgClosure *closure);
 INLINE_HEADER StgCompactNFDataBlock *objectGetCompactBlock (StgClosure *closure)
 {
@@ -59,6 +61,8 @@ INLINE_HEADER StgCompactNFDataBlock *objectGetCompactBlock (StgClosure *closure)
     return (StgCompactNFDataBlock*)(head_block->start);
 }
 
+// Go from an arbitrary pointer into any block of a compact chain, to the
+// StgCompactNFData for the whole compact chain.
 INLINE_HEADER StgCompactNFData *objectGetCompact (StgClosure *closure);
 INLINE_HEADER StgCompactNFData *objectGetCompact (StgClosure *closure)
 {
