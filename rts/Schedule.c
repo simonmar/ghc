@@ -576,6 +576,7 @@ removeFromRunQueue (Capability *cap, StgTSO *tso)
         setTSOPrev(cap, tso->_link, tso->block_info.prev);
     }
     tso->_link = tso->block_info.prev = END_TSO_QUEUE;
+    cap->n_run_queue--;
 
     IF_DEBUG(sanity, checkRunQueue(cap));
 }
@@ -641,7 +642,7 @@ shouldYieldCapability (Capability *cap, Task *task, rtsBool didGcLast)
     // progress at all.
 
     return ((pending_sync && !didGcLast) ||
-            cap->returning_tasks_hd != NULL ||
+            cap->n_returning_tasks != 0 ||
             (!emptyRunQueue(cap) && (task->incall->tso == NULL
                                      ? peekRunQueue(cap)->bound != NULL
                                      : peekRunQueue(cap)->bound != task->incall)));
@@ -701,32 +702,16 @@ schedulePushWork(Capability *cap USED_IF_THREADS,
 #if defined(THREADED_RTS)
 
     Capability *free_caps[n_capabilities], *cap0;
-    nat i, n_wanted_caps, n_free_caps;
-    StgTSO *t;
+    uint32_t i, n_wanted_caps, n_free_caps;
 
     // migration can be turned off with +RTS -qm
     if (!RtsFlags.ParFlags.migrate) return;
 
-    // Check whether we have more threads on our run queue, or sparks
-    // in our pool, that we could hand to another Capability.
-    if (emptyRunQueue(cap)) {
-        if (sparkPoolSizeCap(cap) < 2) return;
-    } else {
-        if (singletonRunQueue(cap) &&
-            sparkPoolSizeCap(cap) < 1) return;
-    }
-
     // Figure out how many capabilities we want to wake up.  We need at least
     // sparkPoolSize(cap) plus the number of spare threads we have.
-    t = cap->run_queue_hd;
-    n_wanted_caps = sparkPoolSizeCap(cap);
-    if (t != END_TSO_QUEUE) {
-        do {
-            t = t->_link;
-            if (t == END_TSO_QUEUE) break;
-            n_wanted_caps++;
-        } while (n_wanted_caps < n_capabilities-1);
-    }
+    n_wanted_caps = sparkPoolSizeCap(cap) + cap->n_run_queue - 1;
+
+    if (n_wanted_caps == 0) return;
 
     // First grab as many free Capabilities as we can.  ToDo: we should use
     // capabilities on the same NUMA node preferably, but not exclusively.
@@ -736,7 +721,7 @@ schedulePushWork(Capability *cap USED_IF_THREADS,
         cap0 = capabilities[i];
         if (cap != cap0 && !cap0->disabled && tryGrabCapability(cap0,task)) {
             if (!emptyRunQueue(cap0)
-                || cap0->returning_tasks_hd != NULL
+                || cap0->n_returning_tasks != 0
                 || cap0->inbox != (Message*)END_TSO_QUEUE) {
                 // it already has some work, we just grabbed it at
                 // the wrong moment.  Or maybe it's deadlocked!
@@ -767,7 +752,7 @@ schedulePushWork(Capability *cap USED_IF_THREADS,
         debugTrace(DEBUG_sched,
                    "cap %d: %s and %d free capabilities, sharing...",
                    cap->no,
-                   (!emptyRunQueue(cap) && !singletonRunQueue(cap))?
+                   (cap->n_run_queue > 1)?
                    "excess threads on run queue":"sparks to share (>=2)",
                    n_free_caps);
 
@@ -799,6 +784,7 @@ schedulePushWork(Capability *cap USED_IF_THREADS,
                     prev = t;
                 } else {
                     appendToRunQueue(free_caps[i],t);
+                    cap->n_run_queue--;
 
                     traceEventMigrateThread (cap, t, free_caps[i]->no);
 
@@ -2061,10 +2047,12 @@ forkProcess(HsStablePtr *entry
             // bound threads for which the corresponding Task does not
             // exist.
             truncateRunQueue(cap);
+            cap->n_run_queue = 0;
 
             // Any suspended C-calling Tasks are no more, their OS threads
             // don't exist now:
             cap->suspended_ccalls = NULL;
+            cap->n_suspended_ccalls = 0;
 
 #if defined(THREADED_RTS)
             // Wipe our spare workers list, they no longer exist.  New
@@ -2073,6 +2061,7 @@ forkProcess(HsStablePtr *entry
             cap->n_spare_workers = 0;
             cap->returning_tasks_hd = NULL;
             cap->returning_tasks_tl = NULL;
+            cap->n_returning_tasks = 0;
 #endif
 
             // Release all caps except 0, we'll use that for starting
@@ -2299,6 +2288,7 @@ suspendTask (Capability *cap, Task *task)
         cap->suspended_ccalls->prev = incall;
     }
     cap->suspended_ccalls = incall;
+    cap->n_suspended_ccalls++;
 }
 
 STATIC_INLINE void
@@ -2317,6 +2307,7 @@ recoverSuspendedTask (Capability *cap, Task *task)
         incall->next->prev = incall->prev;
     }
     incall->next = incall->prev = NULL;
+    cap->n_suspended_ccalls--;
 }
 
 /* ---------------------------------------------------------------------------
