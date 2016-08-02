@@ -95,6 +95,7 @@ typedef struct _DEBUG_FLAGS {
     rtsBool hpc; 	    /* 'c' coverage */
     rtsBool sparks; 	    /* 'r' */
     rtsBool numa; 	    /* '--debug-numa' */
+    rtsBool compact;        /* 'C' */
 } DEBUG_FLAGS;
 
 /* See Note [Synchronization of flags and base APIs] */
