@@ -22,6 +22,7 @@
 #include "Hash.h"
 #include "HeapAlloc.h"
 #include "BlockAlloc.h"
+#include "Trace.h"
 
 #ifdef HAVE_UNISTD_H
 #include <unistd.h>
@@ -345,6 +346,8 @@ compactNew (Capability *cap, StgWord size)
     bd->free = (StgPtr)((W_)self + sizeof(StgCompactNFData));
 
     self->totalW = bd->blocks * BLOCK_SIZE_W;
+
+    debugTrace(DEBUG_compact, "compactNew: size %" FMT_Word, size);
 
     return self;
 }

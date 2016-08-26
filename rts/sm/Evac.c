@@ -414,7 +414,12 @@ evacuate_compact (StgPtr p)
         return;
     }
 
-    // remove from large_object list
+    debugTrace(DEBUG_compact,
+               "compact alive @%p, gen %d, %" FMT_Word " bytes, %" FMT_Word " bytes",
+               str, gen_no, str->totalW * sizeof(W_),
+               str->totalDataW * sizeof(W_));
+
+    // remove from compact_objects list
     if (bd->u.back) {
         bd->u.back->link = bd->link;
     } else { // first object in the list
