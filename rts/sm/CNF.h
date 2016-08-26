@@ -70,6 +70,10 @@ INLINE_HEADER StgCompactNFData *objectGetCompact (StgClosure *closure)
     return block->owner;
 }
 
+extern void *allocateForCompact (Capability *cap,
+                                 StgCompactNFData *str,
+                                 StgWord           sizeW);
+
 #include "EndPrivate.h"
 
 #endif // SM_COMPACT_H

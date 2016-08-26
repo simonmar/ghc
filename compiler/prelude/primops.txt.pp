@@ -2515,6 +2515,21 @@ primop  CompactFixupPointersOp "compactFixupPointers#" GenPrimOp
    has_side_effects = True
    out_of_line      = True
 
+primop CompactAdd "compactAdd#" GenPrimOp
+   Compact# -> a -> State# RealWorld -> (# State# RealWorld, a #)
+   { Recursively add a closure and its transitive closure to a Compact#,
+     evaluating any unevaluated components at the same time. }
+   with
+   has_side_effects = True
+   out_of_line      = True
+
+primop CompactSize "compactSize#" GenPrimOp
+   Compact# -> State# RealWorld -> (# State# RealWorld, Word# #)
+   { Return the size (in bytes) of the total amount of data in the Compact# }
+   with
+   has_side_effects = True
+   out_of_line      = True
+
 ------------------------------------------------------------------------
 section "Unsafe pointer equality"
 --  (#1 Bad Guy: Alastair Reid :)

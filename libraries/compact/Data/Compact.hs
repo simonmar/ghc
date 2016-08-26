@@ -2,6 +2,7 @@
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE MagicHash #-}
 {-# LANGUAGE UnboxedTuples #-}
+{-# OPTIONS_GHC -Wno-redundant-constraints #-}
 
 -----------------------------------------------------------------------------
 -- |
@@ -20,6 +21,7 @@
 -- /Since: 1.0.0/
 module Data.Compact (
   Compact,
+  compact,
   getCompact,
   inCompact,
   isCompact,
@@ -33,9 +35,10 @@ module Data.Compact (
 -- Write down all GHC.Prim deps explicitly to keep them at minimum
 import GHC.Prim (Compact#,
                  compactNew#,
+                 compactAdd#,
                  State#,
                  RealWorld,
-                 Int#,
+                 Int#
                  )
 -- We need to import Word from GHC.Types to see the representation
 -- and to able to access the Word# to pass down the primops
@@ -87,3 +90,12 @@ newCompact = compactNewInternal 1#
 -- |Create a new 'Compact', but append the value using 'appendCompactNoShare'
 newCompactNoShare :: NFData a => Word -> a -> IO (Compact a)
 newCompactNoShare = compactNewInternal 0#
+
+-- The NFData constraint is just to ensure that the object contains no
+-- functions, we do not actually use it.
+compact :: NFData a => a -> IO (Compact a)
+compact a = IO $ \s0 ->
+  case compactNew# 31268## s0 of { (# s1, compact# #) ->
+  case compactAdd# compact# a s1 of { (# s2, pk #) ->
+  (# s2, Compact compact# pk #)
+  }}

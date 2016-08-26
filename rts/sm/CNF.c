@@ -23,6 +23,7 @@
 #include "HeapAlloc.h"
 #include "BlockAlloc.h"
 #include "Trace.h"
+#include "sm/ShouldCompact.h"
 
 #ifdef HAVE_UNISTD_H
 #include <unistd.h>
@@ -90,7 +91,9 @@
   ~~~~~~~~~~
 
   (1) A CNF is self-contained.  The data within it does not have any external
-      pointers.
+      pointers.  EXCEPT: pointers to static constructors that are guaranteed to
+      never refer (directly or indirectly) to CAFs are allowed, because the
+      garbage collector does not have to track or follow these.
 
   (2) A CNF contains only immutable data, no THUNKS or explicitly mutable
       objects.  This helps maintain invariant (1).
@@ -530,6 +533,19 @@ allocate_loop (Capability       *cap,
     return allocate_in_compact(block, sizeW, at);
 }
 
+void *
+allocateForCompact (Capability *cap,
+                    StgCompactNFData *str,
+                    StgWord           sizeW)
+{
+    StgPtr to;
+    if (!allocate_loop(cap, str, sizeW, &to)) {
+        barf("Failed to copy object in compact, object too large\n");
+    }
+    return to;
+}
+
+
 static void
 copy_tag (Capability        *cap,
           StgCompactNFData  *str,
@@ -560,6 +576,27 @@ copy_tag (Capability        *cap,
         insertHashTable(hash, (StgWord)from, to);
 
     *p = TAG_CLOSURE(tag, (StgClosure*)to);
+}
+
+//
+// shouldCompact(c,p): returns:
+//    SHOULDCOMPACT_IN_CNF if the object is in c
+//    SHOULDCOMPACT_STATIC if the object is static
+//    SHOULDCOMPACT_NOTIN_CNF if the object is dynamic and not in c
+//
+StgWord shouldCompact (StgCompactNFData *str, StgClosure *p)
+{
+    bdescr *bd;
+
+    if (!HEAP_ALLOCED(p))
+        return SHOULDCOMPACT_STATIC;  // we have to copy static closures too
+
+    bd = Bdescr((P_)p);
+    if ((bd->flags & BF_COMPACT) && objectGetCompact(p) == str) {
+        return SHOULDCOMPACT_IN_CNF;
+    } else {
+        return SHOULDCOMPACT_NOTIN_CNF;
+    }
 }
 
 STATIC_INLINE rtsBool
