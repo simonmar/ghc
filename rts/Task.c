@@ -35,7 +35,6 @@ nat peakWorkerCount;
 static int tasksInitialized = 0;
 
 static void   freeTask  (Task *task);
-static Task * allocTask (void);
 static Task * newTask   (rtsBool);
 
 #if defined(THREADED_RTS)
@@ -116,8 +115,7 @@ freeTaskManager (void)
     return tasksRunning;
 }
 
-static Task *
-allocTask (void)
+Task* getTask (void)
 {
     Task *task;
 
@@ -208,7 +206,7 @@ newTask (rtsBool worker)
 
     task->cap           = NULL;
     task->worker        = worker;
-    task->stopped       = rtsFalse;
+    task->stopped       = rtsTrue;
     task->running_finalizers = rtsFalse;
     task->n_spare_incalls = 0;
     task->spare_incalls = NULL;
@@ -303,7 +301,7 @@ newBoundTask (void)
         stg_exit(EXIT_FAILURE);
     }
 
-    task = allocTask();
+    task = getTask();
 
     task->stopped = rtsFalse;
 
@@ -451,6 +449,7 @@ startWorkerTask (Capability *cap)
 
   // A worker always gets a fresh Task structure.
   task = newTask(rtsTrue);
+  task->stopped = rtsFalse;
 
   // The lock here is to synchronise with taskStart(), to make sure
   // that we have finished setting up the Task structure before the
@@ -498,7 +497,7 @@ void rts_setInCallCapability (
     int preferred_capability,
     int affinity USED_IF_THREADS)
 {
-    Task *task = allocTask();
+    Task *task = getTask();
     task->preferred_capability = preferred_capability;
 
 #ifdef THREADED_RTS

@@ -725,7 +725,7 @@ schedulePushWork(Capability *cap USED_IF_THREADS,
         if (cap != cap0 && !cap0->disabled && tryGrabCapability(cap0,task)) {
             if (!emptyRunQueue(cap0)
                 || cap0->n_returning_tasks != 0
-                || cap0->inbox != (Message*)END_TSO_QUEUE) {
+                || !emptyInbox(cap0)) {
                 // it already has some work, we just grabbed it at
                 // the wrong moment.  Or maybe it's deadlocked!
                 releaseCapability(cap0);
@@ -1007,6 +1007,7 @@ scheduleProcessInbox (Capability **pcap USED_IF_THREADS)
 {
 #if defined(THREADED_RTS)
     Message *m, *next;
+    PutMVar *p, *pnext;
     int r;
     Capability *cap = *pcap;
 
@@ -1031,7 +1032,9 @@ scheduleProcessInbox (Capability **pcap USED_IF_THREADS)
         if (r != 0) return;
 
         m = cap->inbox;
+        p = cap->putMVars;
         cap->inbox = (Message*)END_TSO_QUEUE;
+        cap->putMVars = NULL;
 
         RELEASE_LOCK(&cap->lock);
 
@@ -1040,9 +1043,19 @@ scheduleProcessInbox (Capability **pcap USED_IF_THREADS)
             executeMessage(cap, m);
             m = next;
         }
+
+        while (p != NULL) {
+            pnext = p->link;
+            performTryPutMVar(cap, (StgMVar*)deRefStablePtr(p->mvar),
+                              Unit_closure);
+            freeStablePtr(p->mvar);
+            stgFree(p);
+            p = pnext;
+        }
     }
 #endif
 }
+
 
 /* ----------------------------------------------------------------------------
  * Activate spark threads (PARALLEL_HASKELL and THREADED_RTS)
