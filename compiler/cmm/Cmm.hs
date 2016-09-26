@@ -18,7 +18,7 @@ module Cmm (
      -- * Info Tables
      CmmTopInfo(..), CmmStackInfo(..), CmmInfoTable(..), topInfoTable,
      ClosureTypeInfo(..),
-     C_SRT(..), needsSRT,
+     needsSRT,
      ProfilingInfo(..), ConstrDescription,
 
      -- * Statements, expressions and types
@@ -40,6 +40,7 @@ import Hoopl.Label
 import Outputable
 
 import Data.Word        ( Word8 )
+import Data.Maybe
 
 -----------------------------------------------------------------------------
 --  Cmm, GenCmm
@@ -138,23 +139,15 @@ data CmmInfoTable
       cit_lbl  :: CLabel, -- Info table label
       cit_rep  :: SMRep,
       cit_prof :: ProfilingInfo,
-      cit_srt  :: C_SRT
+      cit_srt  :: Maybe CLabel   -- empty, or a closure address
     }
 
 data ProfilingInfo
   = NoProfilingInfo
   | ProfilingInfo [Word8] [Word8] -- closure_type, closure_desc
 
--- C_SRT is what StgSyn.SRT gets translated to...
--- we add a label for the table, and expect only the 'offset/length' form
-
-data C_SRT = NoC_SRT
-           | C_SRT !CLabel !WordOff !StgHalfWord {-bitmap or escape-}
-           deriving (Eq)
-
-needsSRT :: C_SRT -> Bool
-needsSRT NoC_SRT       = False
-needsSRT (C_SRT _ _ _) = True
+needsSRT :: Maybe CLabel -> Bool
+needsSRT = isJust
 
 -----------------------------------------------------------------------------
 --              Static Data
