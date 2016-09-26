@@ -1359,12 +1359,14 @@ hscCompileCmmFile hsc_env filename output_filename = runHsc hsc_env $ do
     let dflags = hsc_dflags hsc_env
     cmm <- ioMsgMaybe $ parseCmmFile dflags filename
     liftIO $ do
-        us <- mkSplitUniqSupply 'S'
-        let initTopSRT = initUs_ us emptySRT
         dumpIfSet_dyn dflags Opt_D_dump_cmm_verbose "Parsed Cmm" (ppr cmm)
-        (_, cmmgroup) <- cmmPipeline hsc_env initTopSRT cmm
+        (_, cmmgroup) <- cmmPipeline hsc_env emptySRT cmm
         rawCmms <- cmmToRawCmm dflags (Stream.yield cmmgroup)
-        _ <- codeOutput dflags no_mod output_filename no_loc NoStubs [] rawCmms
+        let dump a = do dumpIfSet_dyn dflags Opt_D_dump_cmm
+                           "Output Cmm" (ppr a)
+                        return a
+        _ <- codeOutput dflags no_mod output_filename no_loc NoStubs [] $
+               Stream.mapM dump rawCmms
         return ()
   where
     no_mod = panic "hscCompileCmmFile: no_mod"
@@ -1413,21 +1415,16 @@ doCodeGen hsc_env this_mod data_tycons
       | gopt Opt_SplitObjs dflags || gopt Opt_SplitSections dflags
         = {-# SCC "cmmPipeline" #-}
           let run_pipeline us cmmgroup = do
-                let (topSRT', us') = initUs us emptySRT
-                (topSRT, cmmgroup) <- cmmPipeline hsc_env topSRT' cmmgroup
-                let srt | isEmptySRT topSRT = []
-                        | otherwise         = srtToData topSRT
-                return (us', srt ++ cmmgroup)
+                (_topSRT, cmmgroup) <- cmmPipeline hsc_env emptySRT cmmgroup
+                return (us, cmmgroup)
 
           in do _ <- Stream.mapAccumL run_pipeline us ppr_stream1
                 return ()
 
       | otherwise
         = {-# SCC "cmmPipeline" #-}
-          let initTopSRT = initUs_ us emptySRT
-              run_pipeline = cmmPipeline hsc_env
-          in do topSRT <- Stream.mapAccumL run_pipeline initTopSRT ppr_stream1
-                Stream.yield (srtToData topSRT)
+          let run_pipeline = cmmPipeline hsc_env
+          in void $ Stream.mapAccumL run_pipeline emptySRT ppr_stream1
 
     let
         dump2 a = do dumpIfSet_dyn dflags Opt_D_dump_cmm

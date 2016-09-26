@@ -709,7 +709,7 @@ mkCmmInfo ClosureInfo {..}
   = CmmInfoTable { cit_lbl  = closureInfoLabel
                  , cit_rep  = closureSMRep
                  , cit_prof = closureProf
-                 , cit_srt  = NoC_SRT }
+                 , cit_srt  = Nothing }
 
 --------------------------------------
 --        Building ClosureInfos
@@ -994,7 +994,7 @@ mkDataConInfoTable dflags data_con is_static ptr_wds nonptr_wds
  = CmmInfoTable { cit_lbl  = info_lbl
                 , cit_rep  = sm_rep
                 , cit_prof = prof
-                , cit_srt  = NoC_SRT }
+                , cit_srt  = Nothing }
  where
    name = dataConName data_con
 
@@ -1019,14 +1019,14 @@ cafBlackHoleInfoTable
   = CmmInfoTable { cit_lbl  = mkCAFBlackHoleInfoTableLabel
                  , cit_rep  = blackHoleRep
                  , cit_prof = NoProfilingInfo
-                 , cit_srt  = NoC_SRT }
+                 , cit_srt  = Nothing }
 
 indStaticInfoTable :: CmmInfoTable
 indStaticInfoTable
   = CmmInfoTable { cit_lbl  = mkIndStaticInfoLabel
                  , cit_rep  = indStaticRep
                  , cit_prof = NoProfilingInfo
-                 , cit_srt  = NoC_SRT }
+                 , cit_srt  = Nothing }
 
 staticClosureNeedsLink :: Bool -> CmmInfoTable -> Bool
 -- A static closure needs a link field to aid the GC when traversing

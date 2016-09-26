@@ -43,7 +43,11 @@ extern uint32_t mutlist_MUTVARS, mutlist_MUTARRS, mutlist_MVARS, mutlist_OTHERS,
     mutlist_TREC_CHUNK,
     mutlist_TREC_HEADER,
     mutlist_ATOMIC_INVARIANT,
-    mutlist_INVARIANT_CHECK_QUEUE;
+    mutlist_INVARIANT_CHECK_QUEUE,
+    static_INDs,
+    static_FUNs,
+    static_THUNKs,
+    static_CONSTRs;
 #endif
 
 #if defined(PROF_SPIN) && defined(THREADED_RTS)

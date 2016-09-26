@@ -15,7 +15,6 @@ module CLabel (
 
         mkClosureLabel,
         mkSRTLabel,
-        mkTopSRTLabel,
         mkInfoTableLabel,
         mkEntryLabel,
         mkSlowEntryLabel,
@@ -24,7 +23,6 @@ module CLabel (
         mkRednCountsLabel,
         mkConInfoTableLabel,
         mkStaticInfoTableLabel,
-        mkLargeSRTLabel,
         mkApEntryLabel,
         mkApInfoTableLabel,
         mkClosureTableLabel,
@@ -66,6 +64,7 @@ module CLabel (
         mkSMAP_DIRTY_infoLabel,
         mkEMPTY_MVAR_infoLabel,
         mkArrWords_infoLabel,
+        mkSRTInfoLabel,
 
         mkTopTickyCtrLabel,
         mkCAFBlackHoleInfoTableLabel,
@@ -90,6 +89,9 @@ module CLabel (
 
         mkForeignLabel,
         addLabelSize,
+
+        isClosureLabel,
+        isInfoLabel,
 
         foreignLabelStdcallInfo,
         isForeignLabel,
@@ -234,10 +236,7 @@ data CLabel
   | HpcTicksLabel Module
 
   -- | Static reference table
-  | SRTLabel !Unique
-
-  -- | Label of an StgLargeSRT
-  | LargeSRTLabel
+  | SRTLabel
         {-# UNPACK #-} !Unique
 
   -- | A bitmap (function or case return)
@@ -291,8 +290,6 @@ instance Ord CLabel where
     compare a1 a2
   compare (SRTLabel u1) (SRTLabel u2) =
     nonDetCmpUnique u1 u2
-  compare (LargeSRTLabel u1) (LargeSRTLabel u2) =
-    nonDetCmpUnique u1 u2
   compare (LargeBitmapLabel u1) (LargeBitmapLabel u2) =
     nonDetCmpUnique u1 u2
   compare IdLabel{} _ = LT
@@ -327,8 +324,6 @@ instance Ord CLabel where
   compare _ HpcTicksLabel{} = GT
   compare SRTLabel{} _ = LT
   compare _ SRTLabel{} = GT
-  compare LargeSRTLabel{} _ = LT
-  compare _ LargeSRTLabel{} = GT
 
 -- | Record where a foreign label is stored.
 data ForeignLabelSource
@@ -376,9 +371,6 @@ pprDebugCLabel lbl
 
 data IdLabelInfo
   = Closure             -- ^ Label for closure
-  | SRT                 -- ^ Static reference table (TODO: could be removed
-                        -- with the old code generator, but might be needed
-                        -- when we implement the New SRT Plan)
   | InfoTable           -- ^ Info tables for closures; always read-only
   | Entry               -- ^ Entry point
   | Slow                -- ^ Slow entry point
@@ -454,12 +446,10 @@ data DynamicLinkerLabelInfo
 mkSlowEntryLabel :: Name -> CafInfo -> CLabel
 mkSlowEntryLabel        name c         = IdLabel name  c Slow
 
-mkTopSRTLabel     :: Unique -> CLabel
-mkTopSRTLabel u = SRTLabel u
+mkSRTLabel     :: Unique -> CLabel
+mkSRTLabel u = SRTLabel u
 
-mkSRTLabel        :: Name -> CafInfo -> CLabel
 mkRednCountsLabel :: Name -> CLabel
-mkSRTLabel              name c  = IdLabel name  c SRT
 mkRednCountsLabel       name    =
   IdLabel name NoCafRefs RednCounts  -- Note [ticky for LNE]
 
@@ -525,6 +515,25 @@ mkSMAP_FROZEN_infoLabel         = CmmLabel rtsUnitId (fsLit "stg_SMALL_MUT_ARR_P
 mkSMAP_FROZEN0_infoLabel        = CmmLabel rtsUnitId (fsLit "stg_SMALL_MUT_ARR_PTRS_FROZEN0") CmmInfo
 mkSMAP_DIRTY_infoLabel          = CmmLabel rtsUnitId (fsLit "stg_SMALL_MUT_ARR_PTRS_DIRTY") CmmInfo
 
+mkSRTInfoLabel :: Int -> CLabel
+mkSRTInfoLabel n = case n of
+  2 -> CmmLabel rtsUnitId (fsLit "stg_SRT_2") CmmInfo
+  3 -> CmmLabel rtsUnitId (fsLit "stg_SRT_3") CmmInfo
+  4 -> CmmLabel rtsUnitId (fsLit "stg_SRT_4") CmmInfo
+  5 -> CmmLabel rtsUnitId (fsLit "stg_SRT_5") CmmInfo
+  6 -> CmmLabel rtsUnitId (fsLit "stg_SRT_6") CmmInfo
+  7 -> CmmLabel rtsUnitId (fsLit "stg_SRT_7") CmmInfo
+  8 -> CmmLabel rtsUnitId (fsLit "stg_SRT_8") CmmInfo
+  9 -> CmmLabel rtsUnitId (fsLit "stg_SRT_9") CmmInfo
+  10 -> CmmLabel rtsUnitId (fsLit "stg_SRT_10") CmmInfo
+  11 -> CmmLabel rtsUnitId (fsLit "stg_SRT_11") CmmInfo
+  12 -> CmmLabel rtsUnitId (fsLit "stg_SRT_12") CmmInfo
+  13 -> CmmLabel rtsUnitId (fsLit "stg_SRT_13") CmmInfo
+  14 -> CmmLabel rtsUnitId (fsLit "stg_SRT_14") CmmInfo
+  15 -> CmmLabel rtsUnitId (fsLit "stg_SRT_15") CmmInfo
+  16 -> CmmLabel rtsUnitId (fsLit "stg_SRT_16") CmmInfo
+  _ -> panic "mkSRTInfoLabel"
+
 -----
 mkCmmInfoLabel,   mkCmmEntryLabel, mkCmmRetInfoLabel, mkCmmRetLabel,
   mkCmmCodeLabel, mkCmmDataLabel,  mkCmmClosureLabel
@@ -581,6 +590,23 @@ addLabelSize (ForeignLabel str _ src  fod) sz
 addLabelSize label _
     = label
 
+isClosureLabel :: CLabel -> Bool
+isClosureLabel (IdLabel _ _ Closure) = True
+isClosureLabel (CmmLabel _ _ CmmClosure) = True
+isClosureLabel _ = False
+
+isInfoLabel :: CLabel -> Bool
+isInfoLabel (IdLabel _ _ InfoTable) = True
+isInfoLabel (IdLabel _ _ LocalInfoTable) = True
+isInfoLabel (IdLabel _ _ ConInfoTable) = True
+isInfoLabel (IdLabel _ _ StaticInfoTable) = True
+isInfoLabel (CaseLabel _ CaseReturnInfo) = True
+isInfoLabel (RtsLabel RtsSelectorInfoTable{}) = True
+isInfoLabel (RtsLabel RtsApInfoTable{}) = True
+isInfoLabel (CmmLabel _ _ CmmInfo) = True
+isInfoLabel (CmmLabel _ _ CmmRetInfo) = True
+isInfoLabel _ = False
+
 -- | Whether label is a non-haskell label (defined in C code)
 isForeignLabel :: CLabel -> Bool
 isForeignLabel (ForeignLabel _ _ _ _) = True
@@ -593,9 +619,7 @@ foreignLabelStdcallInfo _lbl = Nothing
 
 
 -- Constructing Large*Labels
-mkLargeSRTLabel :: Unique -> CLabel
 mkBitmapLabel   :: Unique -> CLabel
-mkLargeSRTLabel uniq            = LargeSRTLabel uniq
 mkBitmapLabel   uniq            = LargeBitmapLabel uniq
 
 
@@ -738,7 +762,6 @@ needsCDecl :: CLabel -> Bool
   -- don't bother declaring Bitmap labels, we always make sure
   -- they are defined before use.
 needsCDecl (SRTLabel _)                 = True
-needsCDecl (LargeSRTLabel _)            = False
 needsCDecl (LargeBitmapLabel _)         = False
 needsCDecl (IdLabel _ _ _)              = True
 needsCDecl (CaseLabel _ _)              = True
@@ -882,12 +905,10 @@ externallyVisibleCLabel (DynamicLinkerLabel _ _)  = False
 externallyVisibleCLabel (HpcTicksLabel _)       = True
 externallyVisibleCLabel (LargeBitmapLabel _)    = False
 externallyVisibleCLabel (SRTLabel _)            = False
-externallyVisibleCLabel (LargeSRTLabel _)       = False
 externallyVisibleCLabel (PicBaseLabel {}) = panic "externallyVisibleCLabel PicBaseLabel"
 externallyVisibleCLabel (DeadStripPreventer {}) = panic "externallyVisibleCLabel DeadStripPreventer"
 
 externallyVisibleIdLabel :: IdLabelInfo -> Bool
-externallyVisibleIdLabel SRT             = False
 externallyVisibleIdLabel LocalInfoTable  = False
 externallyVisibleIdLabel LocalEntry      = False
 externallyVisibleIdLabel _               = True
@@ -931,7 +952,6 @@ labelType (CaseLabel _ CaseReturnInfo)          = DataLabel
 labelType (CaseLabel _ _)                       = CodeLabel
 labelType (PlainModuleInitLabel _)              = CodeLabel
 labelType (SRTLabel _)                          = DataLabel
-labelType (LargeSRTLabel _)                     = DataLabel
 labelType (LargeBitmapLabel _)                  = DataLabel
 labelType (ForeignLabel _ _ _ IsFunction)       = CodeLabel
 labelType (IdLabel _ _ info)                    = idInfoLabelType info
@@ -1017,7 +1037,6 @@ internal names. <type> is one of the following:
 
          info                   Info table
          srt                    Static reference table
-         srtd                   Static reference table descriptor
          entry                  Entry code (function, closure)
          slow                   Slow entry code (if any)
          ret                    Direct return address
@@ -1136,7 +1155,6 @@ pprCLbl (CaseLabel u CaseDefault)
 pprCLbl (SRTLabel u)
   = pprUnique u <> pp_cSEP <> text "srt"
 
-pprCLbl (LargeSRTLabel u)  = pprUnique u <> pp_cSEP <> text "srtd"
 pprCLbl (LargeBitmapLabel u)  = text "b" <> pprUnique u <> pp_cSEP <> text "btm"
 -- Some bitsmaps for tuple constructors have a numeric tag (e.g. '7')
 -- until that gets resolved we'll just force them to start
@@ -1230,7 +1248,6 @@ ppIdFlavor :: IdLabelInfo -> SDoc
 ppIdFlavor x = pp_cSEP <>
                (case x of
                        Closure          -> text "closure"
-                       SRT              -> text "srt"
                        InfoTable        -> text "info"
                        LocalInfoTable   -> text "info"
                        Entry            -> text "entry"

@@ -105,7 +105,8 @@ static W_ g0_pcnt_kept = 30; // percentage of g0 live at last minor GC
 
 /* Mut-list stats */
 #ifdef DEBUG
-uint32_t mutlist_MUTVARS,
+uint32_t
+    mutlist_MUTVARS,
     mutlist_MUTARRS,
     mutlist_MVARS,
     mutlist_TVAR,
@@ -114,7 +115,11 @@ uint32_t mutlist_MUTVARS,
     mutlist_TREC_HEADER,
     mutlist_ATOMIC_INVARIANT,
     mutlist_INVARIANT_CHECK_QUEUE,
-    mutlist_OTHERS;
+    mutlist_OTHERS,
+    static_INDs,
+    static_FUNs,
+    static_THUNKs,
+    static_CONSTRs;
 #endif
 
 /* Thread-local data for each GC thread
@@ -233,6 +238,10 @@ GarbageCollect (uint32_t collect_gen,
   mutlist_ATOMIC_INVARIANT = 0;
   mutlist_INVARIANT_CHECK_QUEUE = 0;
   mutlist_OTHERS = 0;
+  static_INDs = 0;
+  static_FUNs = 0;
+  static_THUNKs = 0;
+  static_CONSTRs = 0;
 #endif
 
   // attribute any costs to CCS_GC

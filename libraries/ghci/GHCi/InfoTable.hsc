@@ -355,7 +355,7 @@ pokeItbl a0 itbl = do
   (#poke StgInfoTable, layout.payload.ptrs) a0 (ptrs itbl)
   (#poke StgInfoTable, layout.payload.nptrs) a0 (nptrs itbl)
   (#poke StgInfoTable, type) a0 (tipe itbl)
-  (#poke StgInfoTable, srt_bitmap) a0 (srtlen itbl)
+  (#poke StgInfoTable, has_srt) a0 (srtlen itbl)
 #if defined(TABLES_NEXT_TO_CODE)
   let code_offset = (a0 `plusPtr` (#offset StgInfoTable, code))
   case code itbl of
@@ -374,7 +374,7 @@ peekItbl a0 = do
   ptrs' <- (#peek StgInfoTable, layout.payload.ptrs) a0
   nptrs' <- (#peek StgInfoTable, layout.payload.nptrs) a0
   tipe' <- (#peek StgInfoTable, type) a0
-  srtlen' <- (#peek StgInfoTable, srt_bitmap) a0
+  srtlen' <- (#peek StgInfoTable, has_srt) a0
   return StgInfoTable
     { entry  = entry'
     , ptrs   = ptrs'
