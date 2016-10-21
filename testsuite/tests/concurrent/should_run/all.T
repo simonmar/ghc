@@ -181,7 +181,7 @@ test('conc033', normal, compile_and_run, [''])
 
 # Omit for GHCi, because it just sits there waiting for you to press ^C
 test('conc034', [only_compiler_types(['ghc']),
-                 omit_ways(['ghci']), 
+                 omit_ways(['ghci']),
                  extra_run_opts('+RTS -C0 -RTS')],
 		compile_and_run, [''])
 
@@ -262,7 +262,7 @@ else:
 
 test('setnumcapabilities001',
      [ only_ways(['threaded1','threaded2']),
-       extra_run_opts('4 12 2000'),
+       extra_run_opts('8 12 2000'),
        reqlib('parallel'),
        skip_if_not_smp ],
      compile_and_run, [''])
