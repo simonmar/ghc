@@ -6,7 +6,7 @@
  *
  * Documentation on the architecture of the Garbage Collector can be
  * found in the online commentary:
- * 
+ *
  *   http://ghc.haskell.org/trac/ghc/wiki/Commentary/Rts/Storage/GC
  *
  * ---------------------------------------------------------------------------*/
@@ -21,7 +21,7 @@
 
 /* -----------------------------------------------------------------------------
    General scheme
-   
+
    ToDo: move this to the wiki when the implementation is done.
 
    We're only going to try to parallelise the copying GC for now.  The
@@ -67,13 +67,13 @@
 
 /* -----------------------------------------------------------------------------
    Generation Workspace
-  
+
    A generation workspace exists for each generation for each GC
    thread. The GC thread takes a block from the todos list of the
    generation into the scanbd and then scans it.  Objects referred to
    by those in the scan block are copied into the todo or scavd blocks
    of the relevant generation.
-  
+
    ------------------------------------------------------------------------- */
 
 typedef struct gen_workspace_ {
@@ -127,11 +127,10 @@ typedef struct gc_thread_ {
     volatile StgWord wakeup;       // NB not StgWord8; only StgWord is guaranteed atomic
 #endif
     nat thread_index;              // a zero based index identifying the thread
-    rtsBool idle;                  // sitting out of this GC cycle
 
     bdescr * free_blocks;          // a buffer of free blocks for this thread
                                    //  during GC without accessing the block
-                                   //   allocators spin lock. 
+                                   //   allocators spin lock.
 
     // These two lists are chained through the STATIC_LINK() fields of static
     // objects.  Pointers are tagged with the current static_flag, so before
@@ -163,15 +162,15 @@ typedef struct gc_thread_ {
                                    // optimise it into a per-thread
                                    // variable).
 
-    rtsBool failed_to_evac;        // failure to evacuate an object typically 
-                                   // Causes it to be recorded in the mutable 
+    rtsBool failed_to_evac;        // failure to evacuate an object typically
+                                   // Causes it to be recorded in the mutable
                                    // object list
 
     rtsBool eager_promotion;       // forces promotion to the evac gen
                                    // instead of the to-space
                                    // corresponding to the object
 
-    W_ thunk_selector_depth;     // used to avoid unbounded recursion in 
+    W_ thunk_selector_depth;     // used to avoid unbounded recursion in
                                    // evacuate() for THUNK_SELECTOR
 
 #ifdef USE_PAPI
@@ -215,4 +214,3 @@ extern ThreadLocalKey gctKey;
 #include "EndPrivate.h"
 
 #endif // SM_GCTHREAD_H
-

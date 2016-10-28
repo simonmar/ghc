@@ -6,7 +6,7 @@
  *
  * Documentation on the architecture of the Garbage Collector can be
  * found in the online commentary:
- * 
+ *
  *   http://ghc.haskell.org/trac/ghc/wiki/Commentary/Rts/Storage/GC
  *
  * ---------------------------------------------------------------------------*/
@@ -20,7 +20,7 @@
 
 void GarbageCollect (rtsBool force_major_gc,
                      rtsBool do_heap_census,
-                     nat gc_type, Capability *cap);
+                     nat gc_type, Capability *cap, rtsBool idle_cap[]);
 
 typedef void (*evac_fn)(void *user, StgClosure **root);
 
@@ -57,8 +57,8 @@ void initGcThreads (nat from, nat to);
 void freeGcThreads (void);
 
 #if defined(THREADED_RTS)
-void waitForGcThreads (Capability *cap);
-void releaseGCThreads (Capability *cap);
+void waitForGcThreads (Capability *cap, rtsBool idle_cap[]);
+void releaseGCThreads (Capability *cap, rtsBool idle_cap[]);
 #endif
 
 #define WORK_UNIT_WORDS 128
