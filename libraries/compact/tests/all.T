@@ -1,3 +1,5 @@
+setTestOpts(extra_ways(['sanity']))
+
 test('compact_simple', omit_ways(['ghci']), compile_and_run, [''])
 test('compact_loop', omit_ways(['ghci']), compile_and_run, [''])
 test('compact_append', omit_ways(['ghci']), compile_and_run, [''])
