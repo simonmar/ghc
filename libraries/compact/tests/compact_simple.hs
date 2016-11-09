@@ -18,7 +18,7 @@ assertEquals expected actual =
 test func = do
   let val = ("hello", 1, 42, 42, Just 42) ::
         (String, Int, Int, Integer, Maybe Int)
-  str <- func 4096 val
+  str <- func val
 
   -- check that val is still good
   assertEquals ("hello", 1, 42, 42, Just 42) val
@@ -31,5 +31,5 @@ test func = do
   assertEquals ("hello", 1, 42, 42, Just 42) (getCompact str)
 
 main = do
-  test newCompact
-  test newCompactNoShare
+  test (newCompact 4096)
+  test compact

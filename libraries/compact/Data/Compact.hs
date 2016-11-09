@@ -27,7 +27,6 @@ module Data.Compact (
   isCompact,
 
   newCompact,
-  newCompactNoShare,
   appendCompact,
   appendCompactNoShare,
   ) where
@@ -87,12 +86,16 @@ compactNewInternal share (W# size) root =
 newCompact :: NFData a => Word -> a -> IO (Compact a)
 newCompact = compactNewInternal 1#
 
--- |Create a new 'Compact', but append the value using 'appendCompactNoShare'
-newCompactNoShare :: NFData a => Word -> a -> IO (Compact a)
-newCompactNoShare = compactNewInternal 0#
-
+-- | Compact a value.  If the structure contains any internal sharing,
+-- the shared data will be duplicated during the compaction process.
+-- Loops if the structure constains cycles. /O(size of unshared data)/.
+--
 -- The NFData constraint is just to ensure that the object contains no
--- functions, we do not actually use it.
+-- functions, we do not actually use it.  NB. If you use any custom
+-- NFData instances that leave any parts of the structure unevaluated,
+-- then 'compact' will likely fail and terminate the program. (TODO:
+-- should be an exception).
+--
 compact :: NFData a => a -> IO (Compact a)
 compact a = IO $ \s0 ->
   case compactNew# 31268## s0 of { (# s1, compact# #) ->
