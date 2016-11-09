@@ -65,7 +65,6 @@
   |    .    | |  |  |-------------------------------+        +-------------
   `----+----' `--+--+-> StgCompactNFData (Compact#) |        | more data...
        |            |    totalW                     |        |
-       |            |    totalDataW                 |        |
        |            |    autoblockW                 |        |
        |            |    nursery                    |        |
        |            |    last                       |        |
@@ -338,7 +337,6 @@ compactNew (Capability *cap, StgWord size)
 
     self = firstBlockGetCompact(block);
     SET_HDR((StgClosure*)self, &stg_COMPACT_NFDATA_info, CCS_SYSTEM);
-    self->totalDataW = aligned_size / sizeof(StgWord);
     self->autoBlockW = aligned_size / sizeof(StgWord);
     self->nursery = block;
     self->last = block;
@@ -374,7 +372,6 @@ compactAppendBlock (Capability       *cap,
     str->last = block;
     if (str->nursery == NULL)
         str->nursery = block;
-    str->totalDataW += aligned_size / sizeof(StgWord);
 
     bd = Bdescr((P_)block);
     bd->free = (StgPtr)((W_)block + sizeof(StgCompactNFDataBlock));
@@ -1341,11 +1338,9 @@ fixup_late(StgCompactNFData *str, StgCompactNFDataBlock *block)
     StgCompactNFDataBlock *nursery;
     bdescr *bd;
     StgWord totalW;
-    StgWord totalDataW;
 
     nursery = block;
     totalW = 0;
-    totalDataW = 0;
     do {
         block->self = block;
 
@@ -1356,7 +1351,6 @@ fixup_late(StgCompactNFData *str, StgCompactNFDataBlock *block)
             if (bd->free != bd->start)
                 nursery = block;
             block->owner = str;
-            totalDataW += bd->blocks * BLOCK_SIZE_W;
         }
 
         block = block->next;
@@ -1364,7 +1358,6 @@ fixup_late(StgCompactNFData *str, StgCompactNFDataBlock *block)
 
     str->nursery = nursery;
     str->totalW = totalW;
-    str->totalDataW = totalDataW;
 }
 
 static StgClosure *

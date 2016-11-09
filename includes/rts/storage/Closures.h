@@ -456,13 +456,7 @@ typedef struct StgCompactNFData_ {
       // need the compact info pointer (we don't even need fwding
       // pointers because it's a large object)
     StgWord totalW;
-      // for proper accounting in evac, includes slop, and removes the
-      // first block in larger than megablock allocation. Essentially
-      // meaningless, but if we got it wrong sanity would complain
-      // loudly
-    StgWord totalDataW;
-      // for stats/profiling only, it's the full amount of memory used
-      // by this compact, including the portions not yet used
+      // Total number of words in all blocks in the compact
     StgWord autoBlockW;
       // size of automatically appended blocks
     StgCompactNFDataBlock *nursery;

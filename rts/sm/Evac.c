@@ -415,9 +415,8 @@ evacuate_compact (StgPtr p)
     }
 
     debugTrace(DEBUG_compact,
-               "compact alive @%p, gen %d, %" FMT_Word " bytes, %" FMT_Word " bytes",
-               str, gen_no, str->totalW * sizeof(W_),
-               str->totalDataW * sizeof(W_));
+               "compact alive @%p, gen %d, %" FMT_Word " bytes",
+               str, gen_no, str->totalW * sizeof(W_))
 
     // remove from compact_objects list
     if (bd->u.back) {
