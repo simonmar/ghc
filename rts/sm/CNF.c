@@ -589,6 +589,9 @@ StgWord shouldCompact (StgCompactNFData *str, StgClosure *p)
         return SHOULDCOMPACT_STATIC;  // we have to copy static closures too
 
     bd = Bdescr((P_)p);
+    if (bd->flags & BF_PINNED) {
+        barf("shouldCompact: cannot compact a pinned object");
+    }
     if ((bd->flags & BF_COMPACT) && objectGetCompact(p) == str) {
         return SHOULDCOMPACT_IN_CNF;
     } else {

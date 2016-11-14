@@ -1,5 +1,3 @@
-{-# LANGUAGE BangPatterns #-}
-{-# LANGUAGE CPP #-}
 {-# LANGUAGE MagicHash #-}
 {-# LANGUAGE UnboxedTuples #-}
 
@@ -22,28 +20,14 @@
 --
 -- /Since: 1.0.0/
 
-module Data.Compact.Internal(
-  Compact(..),
-  compactResize,
-  isCompact,
-  inCompact,
+module Data.Compact.Internal
+  ( Compact(..)
+  , mkCompact
+  ) where
 
-  compactAppendEvaledInternal,
-) where
-
--- Write down all GHC.Prim deps explicitly to keep them at minimum
-import GHC.Prim (Compact#,
-                 compactAppend#,
-                 compactResize#,
-                 compactContains#,
-                 compactContainsAny#,
-                 State#,
-                 RealWorld,
-                 Int#,
-                 )
--- We need to import Word from GHC.Types to see the representation
--- and to able to access the Word# to pass down the primops
-import GHC.Types (IO(..), Word(..), isTrue#)
+import Control.Concurrent.MVar
+import GHC.Prim
+import GHC.Types
 
 -- | A 'Compact' contains fully evaluated, pure, and immutable data. If
 -- any object in the compact is alive, then the whole compact is
@@ -52,27 +36,16 @@ import GHC.Types (IO(..), Word(..), isTrue#)
 -- the garbage collector. However, the tradeoff is that the memory
 -- that contains a 'Compact' cannot be recovered until the whole 'Compact'
 -- is garbage.
-data Compact a = Compact Compact# a
+data Compact a = Compact Compact# a (MVar ())
+    -- we can *read* from a Compact without taking a lock, but only
+    -- one thread can be writing to the compact at any given time.
+    -- The MVar here is to enforce mutual exclusion among writers.
 
--- |Check if the second argument is inside the Compact
-inCompact :: Compact b -> a -> IO Bool
-inCompact (Compact buffer _) !val =
-  IO (\s -> case compactContains# buffer val s of
-         (# s', v #) -> (# s', isTrue# v #) )
+mkCompact
+  :: Compact# -> a -> State# RealWorld -> (# State# RealWorld, Compact a #)
+mkCompact compact# a s =
+  case unIO (newMVar ()) s of { (# s1, lock #) ->
+  (# s1, Compact compact# a lock #) }
+ where
+  unIO (IO a) = a
 
--- |Check if the argument is in any Compact
-isCompact :: a -> IO Bool
-isCompact !val =
-  IO (\s -> case compactContainsAny# val s of
-         (# s', v #) -> (# s', isTrue# v #) )
-
-compactResize :: Compact a -> Word -> IO ()
-compactResize (Compact oldBuffer _) (W# new_size) =
-  IO (\s -> case compactResize# oldBuffer new_size s of
-         s' -> (# s', () #) )
-
-compactAppendEvaledInternal :: Compact# -> a -> Int# -> State# RealWorld ->
-                               (# State# RealWorld, Compact a #)
-compactAppendEvaledInternal buffer root share s =
-  case compactAppend# buffer root share s of
-    (# s', adjustedRoot #) -> (# s', Compact buffer adjustedRoot #)

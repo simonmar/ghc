@@ -45,7 +45,7 @@ test func = do
       unboxedFrozen = runSTUArray arrTest
 
   let val = (fromList, frozen, stFrozen, unboxedFrozen)
-  str <- func 4096 val
+  str <- func val
 
   -- check that val is still good
   assertEquals (fromList, frozen, stFrozen, unboxedFrozen) val
@@ -56,5 +56,5 @@ test func = do
   assertEquals val (getCompact str)
 
 main = do
-  test newCompact
-  test newCompactNoShare
+  test (newCompact 4096)
+  test compact

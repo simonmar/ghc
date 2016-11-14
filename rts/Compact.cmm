@@ -5,10 +5,10 @@ stg_compactAddzh (P_ compact, P_ p)
 {
     W_ type, info, should;
 
+eval:
     (should) = ccall shouldCompact(compact "ptr", p "ptr");
     if (should == SHOULDCOMPACT_IN_CNF) { return (p); }
 
-eval:
     p = UNTAG(p);
     info  = %INFO_PTR(p);
     type = TO_W_(%INFO_TYPE(%STD_INFO(info)));
@@ -77,19 +77,44 @@ eval:
     }
 
     case ARR_WORDS: {
-        // (P_ to) = allocateForCompact(cap, compact, size);
-        // use prim memcpy
-        ccall barf("stg_compactAdd: TODO: ARR_WORDS");
+        P_ to;
+        W_ size;
+        size = SIZEOF_StgArrBytes + StgArrBytes_bytes(p);
+        ("ptr" to) = ccall allocateForCompact(MyCapability(), compact,
+                                              ROUNDUP_BYTES_TO_WDS(size));
+        prim %memcpy(to, p, size, 1);
+        return (to);
     }
 
     case
         MUT_ARR_PTRS_FROZEN0,
-        MUT_ARR_PTRS_FROZEN,
+        MUT_ARR_PTRS_FROZEN: {
+        W_ i, size, cards, ptrs;
+        size = SIZEOF_StgMutArrPtrs + WDS(StgMutArrPtrs_size(p));
+        ptrs = StgMutArrPtrs_ptrs(p);
+        cards = SIZEOF_StgMutArrPtrs + WDS(ptrs);
+        ("ptr" to) = ccall allocateForCompact(MyCapability(), compact,
+                                              BYTES_TO_WDS(size));
+        SET_HDR(to, StgHeader_info(p), StgHeader_ccs(p));
+        prim %memcpy(to + cards, p + cards , size - cards, 1);
+        i = 0;
+      loop0:
+        if (i < ptrs) {
+            (P_ r1) = call stg_compactAddzh(
+                compact, W_[p + SIZEOF_StgMutArrPtrs + WDS(i)]);
+            P_[to + SIZEOF_StgMutArrPtrs + WDS(i)] = r1;
+            i = i + 1;
+            goto loop0;
+        }
+        return (to);
+    }
+
+    case
         SMALL_MUT_ARR_PTRS_FROZEN0,
         SMALL_MUT_ARR_PTRS_FROZEN: {
         // (P_ to) = allocateForCompact(cap, compact, size);
         // use prim memcpy
-        ccall barf("stg_compactAdd: TODO: MUT_ARR_PTRS");
+        ccall barf("stg_compactAdd: TODO: SMALL_MUT_ARR_PTRS");
     }
 
     // Everything else we should copy and evaluate the components:
@@ -112,20 +137,20 @@ eval:
         // First copy the non-pointers
         if (nptrs > 0) {
             i = ptrs;
-        loop2:
+        loop1:
             StgClosure_payload(to,i) = StgClosure_payload(p,i);
             i = i + 1;
-            if (i < ptrs + nptrs) goto loop2;
+            if (i < ptrs + nptrs) goto loop1;
         }
 
         // Next recursively compact and copy the pointers
         i = 0;
-      loop:
+      loop2:
         if (i < ptrs) {
             (P_ r) = call stg_compactAddzh(compact, StgClosure_payload(p,i));
             StgClosure_payload(to,i) = r;
             i = i + 1;
-            goto loop;
+            goto loop2;
         }
 
         return (to);

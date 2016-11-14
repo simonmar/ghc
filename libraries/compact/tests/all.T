@@ -7,3 +7,6 @@ test('compact_autoexpand', omit_ways(['ghci']), compile_and_run, [''])
 test('compact_simple_array', omit_ways(['ghci']), compile_and_run, [''])
 test('compact_serialize', omit_ways(['ghci']), compile_and_run, [''])
 test('compact_largemap', omit_ways(['ghci']), compile_and_run, [''])
+test('compact_threads',
+     [ extra_run_opts('1000'), omit_ways(['ghci']) ],
+     compile_and_run, [''])
