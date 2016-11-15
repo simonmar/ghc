@@ -1,14 +1,51 @@
 #include "Cmm.h"
 #include "sm/ShouldCompact.h"
 
+/* -----------------------------------------------------------------------------
+   CompactNFData primitives
+
+   See Note [Compact Normal Forms]
+   -------------------------------------------------------------------------  */
+
+stg_compactAddWithSharingzh (P_ compact, P_ p)
+{
+    W_ hash;
+    (hash) = ccall allocHashTable();
+    StgCompactNFData_hash(compact) = hash;
+    (P_ compacted) = call stg_compactAddWorkerzh(compact, p);
+    ccall freeHashTable(hash, NULL);
+    StgCompactNFData_hash(compact) = NULL;
+#ifdef DEBUG
+    ccall verifyCompact(compact);
+#endif
+    return (compacted);
+}
+
 stg_compactAddzh (P_ compact, P_ p)
 {
-    W_ type, info, should;
+    ASSERT(StgCompactNFData_hash(compact) == NULL);
+    (P_ compacted) = call stg_compactAddWorkerzh(compact, p);
+#ifdef DEBUG
+    ccall verifyCompact(compact);
+#endif
+    return (compacted);
+}
+
+#define CHECK_HASH()                                                    \
+    hash = StgCompactNFData_hash(compact);                              \
+    if (hash != NULL) {                                                 \
+        ("ptr" hashed) = ccall lookupHashTable(hash "ptr", p "ptr");    \
+        if (hashed != NULL) {                                           \
+            return (hashed);                                            \
+        }                                                               \
+    }
+
+stg_compactAddWorkerzh (P_ compact, P_ p)
+{
+    W_ type, info, should, hash;
+    P_ hashed;
 
 eval:
-    (should) = ccall shouldCompact(compact "ptr", p "ptr");
-    if (should == SHOULDCOMPACT_IN_CNF) { return (p); }
-
     p = UNTAG(p);
     info  = %INFO_PTR(p);
     type = TO_W_(%INFO_TYPE(%STD_INFO(info)));
@@ -59,7 +96,7 @@ eval:
         SMALL_MUT_ARR_PTRS_CLEAN,
         SMALL_MUT_ARR_PTRS_DIRTY,
         COMPACT_NFDATA: {
-        ccall barf("stg_compactAdd: found mutable closure");
+        ccall barf("stg_compactAddWorkerzh: found mutable closure");
     }
 
     // We shouldn't see any functions, if this data structure was NFData.
@@ -73,15 +110,22 @@ eval:
         FUN_STATIC,
         BCO,
         PAP: {
-        ccall barf("stg_compactAdd: found function");
+        ccall barf("stg_compactAddWorkerzh: found function");
     }
 
     case ARR_WORDS: {
+
+        (should) = ccall shouldCompact(compact "ptr", p "ptr");
+        if (should == SHOULDCOMPACT_IN_CNF) { return (p); }
+
+        CHECK_HASH();
+
         P_ to;
         W_ size;
         size = SIZEOF_StgArrBytes + StgArrBytes_bytes(p);
-        ("ptr" to) = ccall allocateForCompact(MyCapability(), compact,
-                                              ROUNDUP_BYTES_TO_WDS(size));
+        ("ptr" to) = ccall allocateForCompact(
+            MyCapability() "ptr", compact "ptr",
+            ROUNDUP_BYTES_TO_WDS(size), p "ptr");
         prim %memcpy(to, p, size, 1);
         return (to);
     }
@@ -89,18 +133,26 @@ eval:
     case
         MUT_ARR_PTRS_FROZEN0,
         MUT_ARR_PTRS_FROZEN: {
+
+        (should) = ccall shouldCompact(compact "ptr", p "ptr");
+        if (should == SHOULDCOMPACT_IN_CNF) { return (p); }
+
+        CHECK_HASH();
+
         W_ i, size, cards, ptrs;
         size = SIZEOF_StgMutArrPtrs + WDS(StgMutArrPtrs_size(p));
         ptrs = StgMutArrPtrs_ptrs(p);
         cards = SIZEOF_StgMutArrPtrs + WDS(ptrs);
-        ("ptr" to) = ccall allocateForCompact(MyCapability(), compact,
-                                              BYTES_TO_WDS(size));
+        ("ptr" to) = ccall allocateForCompact(
+            MyCapability() "ptr", compact "ptr", BYTES_TO_WDS(size), p "ptr");
         SET_HDR(to, StgHeader_info(p), StgHeader_ccs(p));
+        StgMutArrPtrs_ptrs(to) = ptrs;
+        StgMutArrPtrs_size(to) = StgMutArrPtrs_size(p);
         prim %memcpy(to + cards, p + cards , size - cards, 1);
         i = 0;
       loop0:
         if (i < ptrs) {
-            (P_ r1) = call stg_compactAddzh(
+            (P_ r1) = call stg_compactAddWorkerzh(
                 compact, W_[p + SIZEOF_StgMutArrPtrs + WDS(i)]);
             P_[to + SIZEOF_StgMutArrPtrs + WDS(i)] = r1;
             i = i + 1;
@@ -114,7 +166,7 @@ eval:
         SMALL_MUT_ARR_PTRS_FROZEN: {
         // (P_ to) = allocateForCompact(cap, compact, size);
         // use prim memcpy
-        ccall barf("stg_compactAdd: TODO: SMALL_MUT_ARR_PTRS");
+        ccall barf("stg_compactAddWorkerzh: TODO: SMALL_MUT_ARR_PTRS");
     }
 
     // Everything else we should copy and evaluate the components:
@@ -123,6 +175,12 @@ eval:
         CONSTR_1_0,
         CONSTR_2_0,
         CONSTR_1_1: {
+
+        (should) = ccall shouldCompact(compact "ptr", p "ptr");
+        if (should == SHOULDCOMPACT_IN_CNF) { return (p); }
+
+        CHECK_HASH();
+
       constructor:
         W_ i, ptrs, nptrs, size;
         P_ to;
@@ -130,8 +188,8 @@ eval:
         nptrs  = TO_W_(%INFO_NPTRS(%STD_INFO(info)));
         size = BYTES_TO_WDS(SIZEOF_StgHeader) + ptrs + nptrs;
 
-        ("ptr" to) = ccall allocateForCompact(MyCapability() "ptr",
-                                              compact "ptr", size);
+        ("ptr" to) = ccall allocateForCompact(
+            MyCapability() "ptr", compact "ptr", size, p "ptr");
         SET_HDR(to, StgHeader_info(p), StgHeader_ccs(p));
 
         // First copy the non-pointers
@@ -147,7 +205,8 @@ eval:
         i = 0;
       loop2:
         if (i < ptrs) {
-            (P_ r) = call stg_compactAddzh(compact, StgClosure_payload(p,i));
+            (P_ r) = call stg_compactAddWorkerzh(
+                compact, StgClosure_payload(p,i));
             StgClosure_payload(to,i) = r;
             i = i + 1;
             goto loop2;
@@ -161,11 +220,14 @@ eval:
         CONSTR_0_1,
         CONSTR_0_2,
         CONSTR_NOCAF: {
-        if (should == SHOULDCOMPACT_STATIC) {
-            return (p);
-        } else {
-            goto constructor;
-        }
+
+        (should) = ccall shouldCompact(compact "ptr", p "ptr");
+        if (should == SHOULDCOMPACT_IN_CNF ||
+            should == SHOULDCOMPACT_STATIC) { return (p); }
+
+        CHECK_HASH();
+
+        goto constructor;
     }}
 
     return (p);
@@ -173,5 +235,121 @@ eval:
 
 stg_compactSizzezh (P_ compact)
 {
-   return (0);
+   return (StgCompactNFData_totalW(compact) * SIZEOF_W);
 }
+
+stg_compactNewzh ( W_ size )
+{
+    P_ str;
+
+    again: MAYBE_GC(again);
+
+    ("ptr" str) = ccall compactNew(MyCapability() "ptr", size);
+    return (str);
+}
+
+stg_compactResizzezh ( P_ str, W_ new_size )
+{
+    again: MAYBE_GC(again);
+
+    ccall compactResize(MyCapability() "ptr", str "ptr", new_size);
+    return ();
+}
+
+stg_compactContainszh ( P_ str, P_ val )
+{
+    W_ rval;
+
+    (rval) = ccall compactContains(str "ptr", val "ptr");
+    return (rval);
+}
+
+stg_compactContainsAnyzh ( P_ val )
+{
+    W_ rval;
+
+    (rval) = ccall compactContains(0 "ptr", val "ptr");
+    return (rval);
+}
+
+stg_compactGetFirstBlockzh ( P_ str )
+{
+    /* W_, not P_, because it is not a gc pointer */
+    W_ block;
+    W_ bd;
+    W_ size;
+
+    block = str - SIZEOF_StgCompactNFDataBlock::W_;
+    ASSERT (StgCompactNFDataBlock_owner(block) == str);
+
+    bd = Bdescr(str);
+    size = bdescr_free(bd) - bdescr_start(bd);
+    ASSERT (size <= TO_W_(bdescr_blocks(bd)) * BLOCK_SIZE);
+
+    return (block, size);
+}
+
+stg_compactGetNextBlockzh ( P_ str, W_ block )
+{
+    /* str is a pointer to the closure holding the Compact#
+       it is there primarily to keep everything reachable from
+       the GC: by having it on the stack of type P_, the GC will
+       see all the blocks as live (any pointer in the Compact#
+       keeps it alive), and will not collect the block
+       We don't run a GC inside this primop, but it could
+       happen right after, or we could be preempted.
+
+       str is also useful for debugging, as it can be casted
+       to a useful C struct from the gdb command line and all
+       blocks can be inspected
+    */
+    W_ bd;
+    W_ next_block;
+    W_ size;
+
+    next_block = StgCompactNFDataBlock_next(block);
+
+    if (next_block == 0::W_) {
+        return (0::W_, 0::W_);
+    }
+
+    ASSERT (StgCompactNFDataBlock_owner(next_block) == str ||
+            StgCompactNFDataBlock_owner(next_block) == NULL);
+
+    bd = Bdescr(next_block);
+    size = bdescr_free(bd) - bdescr_start(bd);
+    ASSERT (size <= TO_W_(bdescr_blocks(bd)) * BLOCK_SIZE);
+
+    return (next_block, size);
+}
+
+stg_compactAllocateBlockzh ( W_ size, W_ previous )
+{
+    W_ actual_block;
+
+    again: MAYBE_GC(again);
+
+    ("ptr" actual_block) = ccall compactAllocateBlock(MyCapability(),
+                                                      size,
+                                                      previous "ptr");
+
+    return (actual_block);
+}
+
+stg_compactFixupPointerszh ( W_ first_block, W_ root )
+{
+    W_ str;
+    P_ gcstr;
+    W_ ok;
+
+    str = first_block + SIZEOF_StgCompactNFDataBlock::W_;
+    (ok) = ccall compactFixupPointers (str "ptr", root "ptr");
+
+    // Now we can let the GC know about str, because it was linked
+    // into the generation list and the book-keeping pointers are
+    // guaranteed to be valid
+    // (this is true even if the fixup phase failed)
+    gcstr = str;
+    return (gcstr, ok);
+}
+

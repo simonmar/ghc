@@ -23,9 +23,11 @@
 module Data.Compact.Internal
   ( Compact(..)
   , mkCompact
+  , compactSized
   ) where
 
 import Control.Concurrent.MVar
+import Control.DeepSeq
 import GHC.Prim
 import GHC.Types
 
@@ -49,3 +51,12 @@ mkCompact compact# a s =
  where
   unIO (IO a) = a
 
+compactSized :: NFData a => Int -> Bool -> a -> IO (Compact a)
+compactSized (I# size) share a = IO $ \s0 ->
+  case compactNew# (int2Word# size) s0 of { (# s1, compact# #) ->
+  case compactAddPrim compact# a s1 of { (# s2, pk #) ->
+  mkCompact compact# pk s2 }}
+ where
+  compactAddPrim
+    | share = compactAddWithSharing#
+    | otherwise = compactAdd#

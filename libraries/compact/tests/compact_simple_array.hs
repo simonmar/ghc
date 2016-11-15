@@ -11,6 +11,7 @@ import qualified Data.Array.Unboxed as U
 import Control.DeepSeq
 
 import Data.Compact
+import Data.Compact.Internal
 
 assertFail :: String -> IO ()
 assertFail msg = throwIO $ AssertionFailed msg
@@ -56,5 +57,5 @@ test func = do
   assertEquals val (getCompact str)
 
 main = do
-  test (newCompact 4096)
-  test compact
+  test (compactSized 4096 True)
+  test (compactSized 4096 False)

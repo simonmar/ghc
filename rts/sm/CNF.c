@@ -340,6 +340,7 @@ compactNew (Capability *cap, StgWord size)
     self->autoBlockW = aligned_size / sizeof(StgWord);
     self->nursery = block;
     self->last = block;
+    self->hash = NULL;
 
     block->owner = self;
 
@@ -394,58 +395,6 @@ compactResize (Capability *cap, StgCompactNFData *str, StgWord new_size)
     str->autoBlockW = aligned_size / sizeof(StgWord);
 
     compactAppendBlock(cap, str, aligned_size);
-}
-
-/* Note [Appending to a Compact]
-
-   This is a simple reimplementation of the copying GC.
-   One could be tempted to reuse the actual GC code here, but he
-   would quickly find out that it would bring all the generational
-   GC complexity for no need at all.
-
-   Plus, we don't need to scavenge/evacuate all kinds of weird
-   objects here, just constructors and primitives. Thunks are
-   expected to be evaluated before appending by the API layer
-   (in Haskell, above the primop which is implemented here).
-   Also, we have a different policy for large objects: instead
-   of relinking to the new large object list, we fully copy
-   them inside the compact and scavenge them normally.
-
-   Note that if we allowed thunks and lazy evaluation the compact
-   would be a mutable object, which would create all sorts of
-   GC problems (besides, evaluating a thunk could exaust the
-   compact space or yield an invalid object, and we would have
-   no way to signal that to the user)
-
-   Just like the real evacuate/scavenge pairs, we need to handle
-   object loops. We would want to use the same strategy of rewriting objects
-   with forwarding pointer, but in a real GC, at the end the
-   blocks from the old space are dropped (dropping all forwarding
-   pointers at the same time), which we can't do here as we don't
-   know all pointers to the objects being evacuated. Also, in parallel
-   we don't know which other threads are evaluating the thunks
-   that we just corrupted at the same time.
-
-   So instead we use a hash table of "visited" objects, and add
-   the pointer as we copy it. To reduce the overhead, we also offer
-   a version of the API that does not preserve sharing (TODO).
-
-   You might be tempted to replace the objects with StdInd to
-   the object in the compact, but you would be wrong: the haskell
-   code assumes that objects in the heap only become more evaluated
-   (thunks to blackholes to inds to actual objects), and in
-   particular it assumes that if a pointer is tagged the object
-   is directly referenced and the values can be read directly,
-   without entering the closure.
-
-   FIXME: any better idea than the hash table?
-*/
-
-static void
-unroll_memcpy(StgPtr to, StgPtr from, StgWord size)
-{
-    for (; size > 0; size--)
-        *(to++) = *(from++);
 }
 
 static rtsBool
@@ -533,46 +482,80 @@ allocate_loop (Capability       *cap,
 void *
 allocateForCompact (Capability *cap,
                     StgCompactNFData *str,
-                    StgWord           sizeW)
+                    StgWord sizeW,
+                    StgClosure *p)
 {
     StgPtr to;
     if (!allocate_loop(cap, str, sizeW, &to)) {
         barf("Failed to copy object in compact, object too large\n");
+    }
+    if (str->hash) {
+        insertHashTable(str->hash, (StgWord)p, (const void*)to);
     }
     return to;
 }
 
 
-static void
-copy_tag (Capability        *cap,
-          StgCompactNFData  *str,
-          HashTable         *hash,
-          StgClosure       **p,
-          StgClosure        *from,
-          StgWord            tag)
+StgWord
+compactContains (StgCompactNFData *str, StgPtr what)
 {
-    StgPtr to;
-    StgWord sizeW;
+    bdescr *bd;
 
-    sizeW = closure_sizeW(from);
+    // This check is the reason why this needs to be
+    // implemented in C instead of (possibly faster) Cmm
+    if (!HEAP_ALLOCED (what))
+        return 0;
 
-    if (!allocate_loop(cap, str, sizeW, &to)) {
-        barf("Failed to copy object in compact, object too large\n");
-        return;
-    }
+    // Note that we don't care about tags, they are eaten
+    // away by the Bdescr operation anyway
+    bd = Bdescr((P_)what);
+    return (bd->flags & BF_COMPACT) != 0 &&
+        (str == NULL || objectGetCompact((StgClosure*)what) == str);
+}
 
-    // unroll memcpy for small sizes because we can
-    // benefit of known alignment
-    // (32 extracted from my magic hat)
-    if (sizeW < 32)
-        unroll_memcpy(to, (StgPtr)from, sizeW);
-    else
-        memcpy(to, from, sizeW * sizeof(StgWord));
+StgCompactNFDataBlock *
+compactAllocateBlock(Capability            *cap,
+                     StgWord                size,
+                     StgCompactNFDataBlock *previous)
+{
+    StgWord aligned_size;
+    StgCompactNFDataBlock *block;
+    bdescr *bd;
 
-    if (hash != NULL)
-        insertHashTable(hash, (StgWord)from, to);
+    aligned_size = BLOCK_ROUND_UP(size);
 
-    *p = TAG_CLOSURE(tag, (StgClosure*)to);
+    // We do not link the new object into the generation ever
+    // - we cannot let the GC know about this object until we're done
+    // importing it and we have fixed up all info tables and stuff
+    //
+    // but we do update n_compact_blocks, otherwise memInventory()
+    // in Sanity will think we have a memory leak, because it compares
+    // the blocks he knows about with the blocks obtained by the
+    // block allocator
+    // (if by chance a memory leak does happen due to a bug somewhere
+    // else, memInventory will also report that all compact blocks
+    // associated with this compact are leaked - but they are not really,
+    // we have a pointer to them and we're not losing track of it, it's
+    // just we can't use the GC until we're done with the import)
+    //
+    // (That btw means that the high level import code must be careful
+    // not to lose the pointer, so don't use the primops directly
+    // unless you know what you're doing!)
+
+    // Other trickery: we pass NULL as first, which means our blocks
+    // are always in generation 0
+    // This is correct because the GC has never seen the blocks so
+    // it had no chance of promoting them
+
+    block = compactAllocateBlockInternal(cap, aligned_size, NULL,
+                                         previous != NULL ? ALLOCATE_IMPORT_APPEND : ALLOCATE_IMPORT_NEW);
+    if (previous != NULL)
+        previous->next = block;
+
+    bd = Bdescr((P_)block);
+    bd->free = (P_)((W_)bd->start + size);
+
+    return block;
 }
 
 //
@@ -599,220 +582,25 @@ StgWord shouldCompact (StgCompactNFData *str, StgClosure *p)
     }
 }
 
+/* -----------------------------------------------------------------------------
+   Sanity-checking a compact
+   -------------------------------------------------------------------------- */
+
+#ifdef DEBUG
 STATIC_INLINE rtsBool
 object_in_compact (StgCompactNFData *str, StgClosure *p)
 {
     bdescr *bd;
 
+    // Only certain static closures are allowed to be referenced from
+    // a compact, but let's be generous here and assume that all
+    // static closures are OK.
     if (!HEAP_ALLOCED(p))
-        return rtsFalse;
+        return rtsTrue;
 
     bd = Bdescr((P_)p);
     return (bd->flags & BF_COMPACT) != 0 &&
         objectGetCompact(p) == str;
-}
-
-static void
-simple_evacuate (Capability        *cap,
-                 StgCompactNFData  *str,
-                 HashTable         *hash,
-                 StgClosure       **p)
-{
-    StgWord tag;
-    StgClosure *from;
-    void *already;
-
-    from = *p;
-    tag = GET_CLOSURE_TAG(from);
-    from = UNTAG_CLOSURE(from);
-
-    // If the object referenced is already in this compact
-    // (for example by reappending an object that was obtained
-    // by compactGetRoot) then do nothing
-    if (object_in_compact(str, from))
-        return;
-
-    switch (get_itbl(from)->type) {
-    case BLACKHOLE:
-        // If tag == 0, the indirectee is the TSO that claimed the tag
-        //
-        // Not useful and not NFData
-        from = ((StgInd*)from)->indirectee;
-        if (GET_CLOSURE_TAG(from) == 0) {
-            debugBelch("Claimed but not updated BLACKHOLE in Compact,"
-                       " not normal form");
-            return;
-        }
-
-        *p = from;
-        return simple_evacuate(cap, str, hash, p);
-
-    case IND:
-    case IND_STATIC:
-        // follow chains of indirections, don't evacuate them
-        from = ((StgInd*)from)->indirectee;
-        *p = from;
-        // Evac.c uses a goto, but let's rely on a smart compiler
-        // and get readable code instead
-        return simple_evacuate(cap, str, hash, p);
-
-    default:
-        // This object was evacuated already, return the existing
-        // pointer
-        if (hash != NULL &&
-            (already = lookupHashTable (hash, (StgWord)from))) {
-            *p = TAG_CLOSURE(tag, (StgClosure*)already);
-            return;
-        }
-
-        copy_tag(cap, str, hash, p, from, tag);
-    }
-}
-
-static void
-simple_scavenge_mut_arr_ptrs (Capability       *cap,
-                              StgCompactNFData *str,
-                              HashTable        *hash,
-                              StgMutArrPtrs    *a)
-{
-    StgPtr p, q;
-
-    p = (StgPtr)&a->payload[0];
-    q = (StgPtr)&a->payload[a->ptrs];
-    for (; p < q; p++) {
-        simple_evacuate(cap, str, hash, (StgClosure**)p);
-    }
-}
-
-static void
-simple_scavenge_block (Capability            *cap,
-                       StgCompactNFData      *str,
-                       StgCompactNFDataBlock *block,
-                       HashTable             *hash,
-                       StgPtr                 p)
-{
-    const StgInfoTable *info;
-    bdescr *bd = Bdescr((P_)block);
-
-    while (p < bd->free) {
-        ASSERT (LOOKS_LIKE_CLOSURE_PTR(p));
-        info = get_itbl((StgClosure*)p);
-
-        switch (info->type) {
-        case CONSTR_1_0:
-            simple_evacuate(cap, str, hash, &((StgClosure*)p)->payload[0]);
-        case CONSTR_0_1:
-            p += sizeofW(StgClosure) + 1;
-            break;
-
-        case CONSTR_2_0:
-            simple_evacuate(cap, str, hash, &((StgClosure*)p)->payload[1]);
-        case CONSTR_1_1:
-            simple_evacuate(cap, str, hash, &((StgClosure*)p)->payload[0]);
-        case CONSTR_0_2:
-            p += sizeofW(StgClosure) + 2;
-            break;
-
-        case CONSTR:
-        case PRIM:
-        case CONSTR_NOCAF:
-        {
-            StgPtr end;
-
-            end = (P_)((StgClosure *)p)->payload + info->layout.payload.ptrs;
-            for (p = (P_)((StgClosure *)p)->payload; p < end; p++) {
-                simple_evacuate(cap, str, hash, (StgClosure **)p);
-            }
-            p += info->layout.payload.nptrs;
-            break;
-        }
-
-        case ARR_WORDS:
-            p += arr_words_sizeW((StgArrBytes*)p);
-            break;
-
-        case MUT_ARR_PTRS_FROZEN:
-        case MUT_ARR_PTRS_FROZEN0:
-            simple_scavenge_mut_arr_ptrs(cap, str, hash, (StgMutArrPtrs*)p);
-            p += mut_arr_ptrs_sizeW((StgMutArrPtrs*)p);
-            break;
-
-        case SMALL_MUT_ARR_PTRS_FROZEN:
-        case SMALL_MUT_ARR_PTRS_FROZEN0:
-        {
-            uint32_t i;
-            StgSmallMutArrPtrs *arr = (StgSmallMutArrPtrs*)p;
-
-            for (i = 0; i < arr->ptrs; i++)
-                simple_evacuate(cap, str, hash, &arr->payload[i]);
-
-            p += sizeofW(StgSmallMutArrPtrs) + arr->ptrs;
-            break;
-        }
-
-        case IND:
-        case BLACKHOLE:
-        case IND_STATIC:
-            // They get shortcircuited by simple_evaluate()
-            barf("IND/BLACKHOLE in Compact");
-            break;
-
-        default:
-            barf("Invalid non-NFData closure in Compact\n");
-        }
-    }
-}
-
-static void
-scavenge_loop (Capability            *cap,
-               StgCompactNFData      *str,
-               StgCompactNFDataBlock *first_block,
-               HashTable             *hash,
-               StgPtr                 p)
-{
-    // Scavenge the first block
-    simple_scavenge_block(cap, str, first_block, hash, p);
-
-    // Note: simple_scavenge_block can change str->last, which
-    // changes this check, in addition to iterating through
-    while (first_block != str->last) {
-        // we can't allocate in blocks that were already scavenged
-        // so push the nursery forward
-        if (str->nursery == first_block)
-            str->nursery = str->nursery->next;
-
-        first_block = first_block->next;
-        simple_scavenge_block(cap, str, first_block, hash,
-                              (P_)first_block + sizeofW(StgCompactNFDataBlock));
-    }
-}
-
-#ifdef DEBUG
-static rtsBool
-objectIsWHNFData (StgClosure *what)
-{
-    switch (get_itbl(what)->type) {
-    case CONSTR:
-    case CONSTR_1_0:
-    case CONSTR_0_1:
-    case CONSTR_2_0:
-    case CONSTR_1_1:
-    case CONSTR_0_2:
-    case CONSTR_NOCAF:
-    case ARR_WORDS:
-    case MUT_ARR_PTRS_FROZEN:
-    case MUT_ARR_PTRS_FROZEN0:
-    case SMALL_MUT_ARR_PTRS_FROZEN:
-    case SMALL_MUT_ARR_PTRS_FROZEN0:
-        return rtsTrue;
-
-    case IND:
-    case BLACKHOLE:
-        return objectIsWHNFData(UNTAG_CLOSURE(((StgInd*)what)->indirectee));
-
-    default:
-        return rtsFalse;
-    }
 }
 
 static rtsBool
@@ -932,105 +720,16 @@ verify_consistency_loop (StgCompactNFData *str)
 
     return rtsTrue;
 }
-#endif
 
-
-StgPtr
-compactAppend (Capability       *cap,
-               StgCompactNFData *str,
-               StgClosure       *what,
-               StgWord           share)
+void verifyCompact (StgCompactNFData *str USED_IF_DEBUG)
 {
-    StgClosure *root;
-    StgClosure *tagged_root;
-    HashTable *hash;
-    StgCompactNFDataBlock *evaced_block;
-
-    ASSERT(objectIsWHNFData(UNTAG_CLOSURE(what)));
-
-    tagged_root = what;
-    simple_evacuate(cap, str, NULL, &tagged_root);
-
-    root = UNTAG_CLOSURE(tagged_root);
-    evaced_block = objectGetCompactBlock(root);
-
-    if (share) {
-        hash = allocHashTable ();
-        insertHashTable(hash, (StgWord)UNTAG_CLOSURE(what), root);
-    } else
-        hash = NULL;
-
-    scavenge_loop(cap, str, evaced_block, hash, (P_)root);
-
-    if (share)
-        freeHashTable(hash, NULL);
-
-    ASSERT(verify_consistency_loop(str));
-
-    return (StgPtr)tagged_root;
+    IF_DEBUG(sanity, ASSERT(verify_consistency_loop(str)));
 }
+#endif // DEBUG
 
-StgWord
-compactContains (StgCompactNFData *str, StgPtr what)
-{
-    bdescr *bd;
-
-    // This check is the reason why this needs to be
-    // implemented in C instead of (possibly faster) Cmm
-    if (!HEAP_ALLOCED (what))
-        return 0;
-
-    // Note that we don't care about tags, they are eaten
-    // away by the Bdescr operation anyway
-    bd = Bdescr((P_)what);
-    return (bd->flags & BF_COMPACT) != 0 &&
-        (str == NULL || objectGetCompact((StgClosure*)what) == str);
-}
-
-StgCompactNFDataBlock *
-compactAllocateBlock(Capability            *cap,
-                     StgWord                size,
-                     StgCompactNFDataBlock *previous)
-{
-    StgWord aligned_size;
-    StgCompactNFDataBlock *block;
-    bdescr *bd;
-
-    aligned_size = BLOCK_ROUND_UP(size);
-
-    // We do not link the new object into the generation ever
-    // - we cannot let the GC know about this object until we're done
-    // importing it and we have fixed up all info tables and stuff
-    //
-    // but we do update n_compact_blocks, otherwise memInventory()
-    // in Sanity will think we have a memory leak, because it compares
-    // the blocks he knows about with the blocks obtained by the
-    // block allocator
-    // (if by chance a memory leak does happen due to a bug somewhere
-    // else, memInventory will also report that all compact blocks
-    // associated with this compact are leaked - but they are not really,
-    // we have a pointer to them and we're not losing track of it, it's
-    // just we can't use the GC until we're done with the import)
-    //
-    // (That btw means that the high level import code must be careful
-    // not to lose the pointer, so don't use the primops directly
-    // unless you know what you're doing!)
-
-    // Other trickery: we pass NULL as first, which means our blocks
-    // are always in generation 0
-    // This is correct because the GC has never seen the blocks so
-    // it had no chance of promoting them
-
-    block = compactAllocateBlockInternal(cap, aligned_size, NULL,
-                                         previous != NULL ? ALLOCATE_IMPORT_APPEND : ALLOCATE_IMPORT_NEW);
-    if (previous != NULL)
-        previous->next = block;
-
-    bd = Bdescr((P_)block);
-    bd->free = (P_)((W_)bd->start + size);
-
-    return block;
-}
+/* -----------------------------------------------------------------------------
+   Fixing up pointers
+   -------------------------------------------------------------------------- */
 
 STATIC_INLINE rtsBool
 any_needs_fixup(StgCompactNFDataBlock *block)
@@ -1130,9 +829,13 @@ fixup_one_pointer(StgWord *fixup_table, uint32_t count, StgClosure **p)
     StgClosure *q;
     StgCompactNFDataBlock *block;
 
+
     q = *p;
     tag = GET_CLOSURE_TAG(q);
     q = UNTAG_CLOSURE(q);
+
+    if (!HEAP_ALLOCED(q))
+        return rtsTrue;
 
     block = find_pointer(fixup_table, count, q);
     if (block == NULL)

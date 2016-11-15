@@ -8,7 +8,7 @@ import System.Environment
 
 main = do
   [n] <- map read <$> getArgs
-  c <- newCompact 4096 ()
+  c <- compact ()
   as <- forM [1..(n::Int)] $ \i -> async (compactAdd c (Just i))
   bs <- forM as $ \a -> async (getCompact <$> takeMVar a)
   xs <- mapM takeMVar bs

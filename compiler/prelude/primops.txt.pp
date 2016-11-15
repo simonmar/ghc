@@ -2444,14 +2444,6 @@ primop  CompactNewOp "compactNew#" GenPrimOp
    has_side_effects = True
    out_of_line      = True
 
-primop  CompactAppendOp "compactAppend#" GenPrimOp
-   Compact# -> a -> Int# -> State# RealWorld -> (# State# RealWorld, a #)
-   { Append an object to a compact, return the new address in the Compact.
-     The third argument is 1 if sharing should be preserved, 0 otherwise. }
-   with
-   has_side_effects = True
-   out_of_line      = True
-
 primop  CompactResizeOp "compactResize#" GenPrimOp
    Compact# -> Word# -> State# RealWorld ->
    State# RealWorld
@@ -2517,8 +2509,21 @@ primop  CompactFixupPointersOp "compactFixupPointers#" GenPrimOp
 
 primop CompactAdd "compactAdd#" GenPrimOp
    Compact# -> a -> State# RealWorld -> (# State# RealWorld, a #)
-   { Recursively add a closure and its transitive closure to a Compact#,
-     evaluating any unevaluated components at the same time. }
+   { Recursively add a closure and its transitive closure to a
+     {\texttt Compact\#}, evaluating any unevaluated components at the
+     same time.  Note: {\texttt compactAdd\#} is not thread-safe, so
+     only one thread may call {\texttt compactAdd\#} with a particular
+     {\texttt Compact#} at any given time.  The primop does not
+     enforce any mutual exclusion; the caller is expected to
+     arrange this. }
+   with
+   has_side_effects = True
+   out_of_line      = True
+
+primop CompactAddWithSharing "compactAddWithSharing#" GenPrimOp
+   Compact# -> a -> State# RealWorld -> (# State# RealWorld, a #)
+   { Like {\texttt compactAdd\#}, but retains sharing and cycles
+   during compaction. }
    with
    has_side_effects = True
    out_of_line      = True

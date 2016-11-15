@@ -21,10 +21,6 @@ void              exitCompact  (void);
 
 StgCompactNFData *compactNew   (Capability      *cap,
                                 StgWord          size);
-StgPtr            compactAppend(Capability       *cap,
-                                StgCompactNFData *str,
-                                StgClosure       *what,
-                                StgWord           share);
 void              compactResize(Capability       *cap,
                                 StgCompactNFData *str,
                                 StgWord           new_size);
@@ -72,7 +68,10 @@ INLINE_HEADER StgCompactNFData *objectGetCompact (StgClosure *closure)
 
 extern void *allocateForCompact (Capability *cap,
                                  StgCompactNFData *str,
-                                 StgWord           sizeW);
+                                 StgWord sizeW,
+                                 StgClosure *p);
+
+extern void verifyCompact (StgCompactNFData *str);
 
 #include "EndPrivate.h"
 

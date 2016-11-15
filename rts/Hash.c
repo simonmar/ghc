@@ -374,6 +374,35 @@ freeHashTable(HashTable *table, void (*freeDataFun)(void *) )
 }
 
 /* -----------------------------------------------------------------------------
+ * Map a function over all the keys/values in a HashTable
+ * -------------------------------------------------------------------------- */
+
+void
+mapHashTable(HashTable *table,
+             void *data,
+             void (*fn)(void *data, StgWord key, const void *value) )
+{
+    long segment;
+    long index;
+    HashList *hl;
+
+    /* The last bucket with something in it is table->max + table->split - 1 */
+    segment = (table->max + table->split - 1) / HSEGSIZE;
+    index = (table->max + table->split - 1) % HSEGSIZE;
+
+    while (segment >= 0) {
+        while (index >= 0) {
+            for (hl = table->dir[segment][index]; hl != NULL; hl = hl->next) {
+                fn(data, hl->key, hl->data);
+            }
+            index--;
+        }
+        segment--;
+        index = HSEGSIZE - 1;
+    }
+}
+
+/* -----------------------------------------------------------------------------
  * When we initialize a hash table, we set up the first segment as well,
  * initializing all of the first segment's hash buckets to NULL.
  * -------------------------------------------------------------------------- */

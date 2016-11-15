@@ -624,9 +624,7 @@ INFO_TABLE_CONSTR(stg_MVAR_TSO_QUEUE,2,0,0,PRIM,"MVAR_TSO_QUEUE","MVAR_TSO_QUEUE
 
 INFO_TABLE( stg_COMPACT_NFDATA, 0, 0, COMPACT_NFDATA, "COMPACT_NFDATA", "COMPACT_NFDATA")
     ()
-{
-    return ();
-}
+{ foreign "C" barf("COMPACT_NFDATA object entered!") never returns; }
 
 /* ----------------------------------------------------------------------------
    CHARLIKE and INTLIKE closures.

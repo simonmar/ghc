@@ -1,12 +1,10 @@
 setTestOpts(extra_ways(['sanity']))
 
-test('compact_simple', omit_ways(['ghci']), compile_and_run, [''])
-test('compact_loop', omit_ways(['ghci']), compile_and_run, [''])
-test('compact_append', omit_ways(['ghci']), compile_and_run, [''])
-test('compact_autoexpand', omit_ways(['ghci']), compile_and_run, [''])
-test('compact_simple_array', omit_ways(['ghci']), compile_and_run, [''])
-test('compact_serialize', omit_ways(['ghci']), compile_and_run, [''])
-test('compact_largemap', omit_ways(['ghci']), compile_and_run, [''])
-test('compact_threads',
-     [ extra_run_opts('1000'), omit_ways(['ghci']) ],
-     compile_and_run, [''])
+test('compact_simple', normal, compile_and_run, [''])
+test('compact_loop', normal, compile_and_run, [''])
+test('compact_append', normal, compile_and_run, [''])
+test('compact_autoexpand', normal, compile_and_run, [''])
+test('compact_simple_array', normal, compile_and_run, [''])
+test('compact_serialize', normal, compile_and_run, [''])
+test('compact_largemap', normal, compile_and_run, [''])
+test('compact_threads', [ extra_run_opts('1000') ], compile_and_run, [''])

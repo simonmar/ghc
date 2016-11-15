@@ -20,15 +20,22 @@
 --
 -- /Since: 1.0.0/
 module Data.Compact (
+  -- * The Compact type
   Compact,
+
+  -- * Compacting data
   compact,
+  compactWithSharing,
   compactAdd,
+  compactAddWithSharing,
+
+  -- * Inspecting Compact
   getCompact,
   inCompact,
   isCompact,
+  compactSize,
 
-  newCompact,
-  appendCompact,
+  -- * Other utilities
   compactResize,
   ) where
 
@@ -37,43 +44,11 @@ import Control.DeepSeq (NFData, force)
 import GHC.Prim
 import GHC.Types
 
-import Data.Compact.Internal
+import Data.Compact.Internal as Internal
 
 -- |Retrieve the object that was stored in a Compact
 getCompact :: Compact a -> a
 getCompact (Compact _ obj _) = obj
-
-compactAppendInternal
-  :: NFData a => Compact# -> a -> Int#
-  -> State# RealWorld
-  -> (# State# RealWorld, Compact# , a #)
-compactAppendInternal buffer root share s =
-  case force root of { !eval ->
-  case compactAppend# buffer eval share s of { (# s', adjustedRoot #) ->
-  (# s', buffer, adjustedRoot #) }}
-
-compactAppendInternalIO :: NFData a => Int# -> Compact b -> a -> IO (Compact a)
-compactAppendInternalIO share (Compact buffer _ lock) root =
-  withMVar lock $ \_ -> IO $ \s ->
-  case compactAppendInternal buffer root share s of { (# s1, buffer', a #) ->
-  (# s1, Compact buffer' a lock #) }
-
--- |Append a value to a 'Compact', and return a new 'Compact'
--- that shares the same buffer but a different root object.
-appendCompact :: NFData a => Compact b -> a -> IO (Compact a)
-appendCompact = compactAppendInternalIO 1#
-
-compactNewInternal :: NFData a => Int# -> Word -> a -> IO (Compact a)
-compactNewInternal share (W# size) root = IO $ \s ->
-  case compactNew# size s of { (# s1, buffer #) ->
-  case compactAppendInternal buffer root share s1 of { (# s2, buffer1, a #) ->
-  mkCompact buffer1 a s2 }}
-
--- |Create a new 'Compact', with the provided value as suggested block
--- size (which will be adjusted if unsuitable), and append the given
--- value to it, as if calling 'appendCompact'
-newCompact :: NFData a => Word -> a -> IO (Compact a)
-newCompact = compactNewInternal 1#
 
 -- | Compact a value. /O(size of unshared data)/
 --
@@ -82,16 +57,27 @@ newCompact = compactNewInternal 1#
 -- structure constains cycles.
 --
 -- The NFData constraint is just to ensure that the object contains no
--- functions, we do not actually use it.  NB. If you use any custom
--- NFData instances that leave any parts of the structure unevaluated,
--- then 'compact' will likely fail and terminate the program. (TODO:
--- should be an exception).
+-- functions, 'compact' does not actually use it.  If your object
+-- contains any functions, then 'compact' will fail. (and your
+-- 'NFData' instance is lying).
 --
 compact :: NFData a => a -> IO (Compact a)
-compact a = IO $ \s0 ->
-  case compactNew# 31268## s0 of { (# s1, compact# #) ->
-  case compactAdd# compact# a s1 of { (# s2, pk #) ->
-  mkCompact compact# pk s2 }}
+compact = Internal.compactSized 31268 False
+
+-- | Compact a value, retaining any internal sharing and
+-- cycles. /O(size of data)/
+--
+-- This is significantly slower than 'compact', because it works by
+-- maintaining a hash table mapping uncompacted objects to compacted
+-- objects.
+--
+-- The NFData constraint is just to ensure that the object contains no
+-- functions, `compact` does not actually use it.  If your object
+-- contains any functions, then 'compactWithSharing' will fail. (and
+-- your 'NFData' instance is lying).
+--
+compactWithSharing :: NFData a => a -> IO (Compact a)
+compactWithSharing = Internal.compactSized 31268 True
 
 -- |Add a value to an existing 'Compact'.  Behaves exactly like
 -- 'compact' with respect to sharing and the 'NFData' constraint.
@@ -99,6 +85,14 @@ compactAdd :: NFData a => Compact b -> a -> IO (Compact a)
 compactAdd (Compact compact# _ lock) a = withMVar lock $ \_ -> IO $ \s ->
   case compactAdd# compact# a s of { (# s1, pk #) ->
   (# s1, Compact compact# pk lock #) }
+
+-- |Add a value to an existing 'Compact'.  Behaves exactly like
+-- 'compact' with respect to sharing and the 'NFData' constraint.
+compactAddWithSharing :: NFData a => Compact b -> a -> IO (Compact a)
+compactAddWithSharing (Compact compact# _ lock) a =
+  withMVar lock $ \_ -> IO $ \s ->
+    case compactAddWithSharing# compact# a s of { (# s1, pk #) ->
+    (# s1, Compact compact# pk lock #) }
 
 
 -- |Check if the second argument is inside the Compact
@@ -112,6 +106,10 @@ isCompact :: a -> IO Bool
 isCompact !val =
   IO (\s -> case compactContainsAny# val s of
          (# s', v #) -> (# s', isTrue# v #) )
+
+compactSize :: Compact a -> IO Word
+compactSize (Compact buffer _ lock) = withMVar lock $ \_ -> IO $ \s0 ->
+   case compactSize# buffer s0 of (# s1, sz #) -> (# s1, W# sz #)
 
 compactResize :: Compact a -> Word -> IO ()
 compactResize (Compact oldBuffer _ lock) (W# new_size) =

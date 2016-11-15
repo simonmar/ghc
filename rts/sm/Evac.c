@@ -26,6 +26,7 @@
 #include "Trace.h"
 #include "LdvProfile.h"
 #include "CNF.h"
+#include "Hash.h"
 
 #if defined(PROF_SPIN) && defined(THREADED_RTS) && defined(PARALLEL_GC)
 StgWord64 whitehole_spin = 0;
@@ -357,6 +358,15 @@ evacuate_static_object (StgClosure **link_field, StgClosure *q)
     }
 }
 
+static void
+evacuate_hash_entry(HashTable *newHash, StgWord key, const void *value)
+{
+    StgClosure *p = (StgClosure*)key;
+
+    evacuate(&p);
+    insertHashTable(newHash, (StgWord)p, value);
+}
+
 /* ----------------------------------------------------------------------------
    Evacuate an object inside a CompactNFData
 
@@ -457,6 +467,12 @@ evacuate_compact (StgPtr p)
     if (new_gen != gen) { RELEASE_SPIN_LOCK(&new_gen->sync); }
 
     RELEASE_SPIN_LOCK(&gen->sync);
+
+    if (str->hash) {
+        HashTable *newHash = allocHashTable();
+        mapHashTable(str->hash, evacuate_hash_entry, (void*)newHash);
+        str->hash = newHash;
+    }
 
     // Note: the object did not move in memory, because it lives
     // in pinned (BF_COMPACT) allocation, so we do not need to rewrite it

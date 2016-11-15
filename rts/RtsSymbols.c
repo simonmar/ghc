@@ -534,7 +534,6 @@
       SymI_HasProto(stg_checkzh)                                        \
       SymI_HasProto(stg_clearCCSzh)                                     \
       SymI_HasProto(stg_compactNewzh)                                   \
-      SymI_HasProto(stg_compactAppendzh)                                \
       SymI_HasProto(stg_compactResizzezh)                               \
       SymI_HasProto(stg_compactContainszh)                              \
       SymI_HasProto(stg_compactContainsAnyzh)                           \

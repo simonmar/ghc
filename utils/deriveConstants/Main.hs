@@ -568,6 +568,7 @@ wanteds os = concat
           ,closureField C "StgCompactNFData" "autoBlockW"
           ,closureField C "StgCompactNFData" "nursery"
           ,closureField C "StgCompactNFData" "last"
+          ,closureField C "StgCompactNFData" "hash"
 
           ,structSize   C "StgCompactNFDataBlock"
           ,structField  C "StgCompactNFDataBlock" "self"

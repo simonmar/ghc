@@ -30,6 +30,8 @@ test func = do
   -- check again the value in the compact
   assertEquals ("hello", 1, 42, 42, Just 42) (getCompact str)
 
+  print =<< compactSize str
+
 main = do
-  test (newCompact 4096)
+  test compactWithSharing
   test compact

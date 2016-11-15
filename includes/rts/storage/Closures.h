@@ -464,6 +464,9 @@ typedef struct StgCompactNFData_ {
     StgCompactNFDataBlock *last;
       // the last block of the chain (to know where to append new
       // blocks for resize)
+    struct hashtable *hash;
+      // the hash table for the current compaction, or NULL if
+      // there's no (sharing-preserved) compaction in progress.
 } StgCompactNFData;
 
 
