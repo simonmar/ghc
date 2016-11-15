@@ -98,7 +98,7 @@ eval:
         SMALL_MUT_ARR_PTRS_CLEAN,
         SMALL_MUT_ARR_PTRS_DIRTY,
         COMPACT_NFDATA: {
-        ccall barf("stg_compactAddWorkerzh: found mutable closure");
+        jump stg_raisezh(base_GHCziIOziException_cannotCompactMutable_closure);
     }
 
     // We shouldn't see any functions, if this data structure was NFData.
@@ -112,13 +112,16 @@ eval:
         FUN_STATIC,
         BCO,
         PAP: {
-        ccall barf("stg_compactAddWorkerzh: found function");
+        jump stg_raisezh(base_GHCziIOziException_cannotCompactFunction_closure);
     }
 
     case ARR_WORDS: {
 
         (should) = ccall shouldCompact(compact "ptr", p "ptr");
         if (should == SHOULDCOMPACT_IN_CNF) { return (p); }
+        if (should == SHOULDCOMPACT_PINNED) {
+            jump stg_raisezh(base_GHCziIOziException_cannotCompactPinned_closure);
+        }
 
         CHECK_HASH();
 
@@ -181,9 +184,10 @@ eval:
         (should) = ccall shouldCompact(compact "ptr", p "ptr");
         if (should == SHOULDCOMPACT_IN_CNF) { return (p); }
 
+      constructor:
+
         CHECK_HASH();
 
-      constructor:
         W_ i, ptrs, nptrs, size;
         P_ to;
         ptrs  = TO_W_(%INFO_PTRS(%STD_INFO(info)));
@@ -226,8 +230,6 @@ eval:
         (should) = ccall shouldCompact(compact "ptr", p "ptr");
         if (should == SHOULDCOMPACT_IN_CNF ||
             should == SHOULDCOMPACT_STATIC) { return (p); }
-
-        CHECK_HASH();
 
         goto constructor;
     }}

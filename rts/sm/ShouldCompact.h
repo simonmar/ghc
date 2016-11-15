@@ -17,6 +17,7 @@
 #define SHOULDCOMPACT_STATIC 0
 #define SHOULDCOMPACT_IN_CNF 1
 #define SHOULDCOMPACT_NOTIN_CNF 2
+#define SHOULDCOMPACT_PINNED 3
 
 #ifndef CMINUSMINUS
 extern StgWord shouldCompact (StgCompactNFData *str, StgClosure *p);
