@@ -45,6 +45,8 @@ stg_compactAddWorkerzh (P_ compact, P_ p)
     W_ type, info, should, hash;
     P_ hashed;
 
+    STK_CHK_GEN();
+
 eval:
     p = UNTAG(p);
     info  = %INFO_PTR(p);
