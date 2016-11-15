@@ -73,6 +73,7 @@ import qualified Data.ByteString.Lazy as LB
 import Data.IORef
 import Foreign hiding (void)
 import GHC.Stack (CostCentre,CostCentreStack)
+import System.Directory
 import System.Exit
 #ifndef mingw32_HOST_OS
 import Data.Maybe
@@ -373,13 +374,24 @@ loadDLL :: HscEnv -> String -> IO (Maybe String)
 loadDLL hsc_env str = iservCmd hsc_env (LoadDLL str)
 
 loadArchive :: HscEnv -> String -> IO ()
-loadArchive hsc_env str = iservCmd hsc_env (LoadArchive str)
+loadArchive hsc_env path = do
+  path' <- canonicalizePath path -- Note [loadObj and relative paths]
+  iservCmd hsc_env (LoadArchive path')
 
 loadObj :: HscEnv -> String -> IO ()
-loadObj hsc_env str = iservCmd hsc_env (LoadObj str)
+loadObj hsc_env path = do
+  path' <- canonicalizePath path -- Note [loadObj and relative paths]
+  iservCmd hsc_env (LoadObj path')
 
 unloadObj :: HscEnv -> String -> IO ()
-unloadObj hsc_env str = iservCmd hsc_env (UnloadObj str)
+unloadObj hsc_env path = do
+  path' <- canonicalizePath path -- Note [loadObj and relative paths]
+  iservCmd hsc_env (UnloadObj path')
+
+-- Note [loadObj and relative paths]
+-- the iserv process might have a different current directory from the
+-- GHC process, so we must make paths absolute before sending them
+-- over.
 
 addLibrarySearchPath :: HscEnv -> String -> IO (Ptr ())
 addLibrarySearchPath hsc_env str =
