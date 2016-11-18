@@ -40,14 +40,29 @@ stg_compactAddzh (P_ compact, P_ p)
         }                                                               \
     }
 
+#define ALLOCATE(compact,sizeW,p,to, tag)                               \
+    hp = StgCompactNFData_hp(compact);                                  \
+    if (hp + WDS(sizeW) <= StgCompactNFData_hpLim(compact)) {           \
+        to = hp;                                                        \
+        StgCompactNFData_hp(compact) = hp + WDS(size);                  \
+    } else {                                                            \
+        ("ptr" to) = ccall allocateForCompact(                          \
+            MyCapability() "ptr", compact "ptr", sizeW);                \
+    }                                                                   \
+    if (StgCompactNFData_hash(compact) != NULL) {                       \
+        ccall insertCompactHash(MyCapability(), compact, p, tag | to);  \
+    }
+
+
 stg_compactAddWorkerzh (P_ compact, P_ p)
 {
-    W_ type, info, should, hash;
+    W_ type, info, should, hash, hp, tag;
     P_ hashed;
 
     STK_CHK_GEN();
 
 eval:
+    tag = GETTAG(p);
     p = UNTAG(p);
     info  = %INFO_PTR(p);
     type = TO_W_(%INFO_TYPE(%STD_INFO(info)));
@@ -118,7 +133,7 @@ eval:
     case ARR_WORDS: {
 
         (should) = ccall shouldCompact(compact "ptr", p "ptr");
-        if (should == SHOULDCOMPACT_IN_CNF) { return (p); }
+        if (should == SHOULDCOMPACT_IN_CNF) { return (tag | p); }
         if (should == SHOULDCOMPACT_PINNED) {
             jump stg_raisezh(base_GHCziIOziException_cannotCompactPinned_closure);
         }
@@ -128,11 +143,9 @@ eval:
         P_ to;
         W_ size;
         size = SIZEOF_StgArrBytes + StgArrBytes_bytes(p);
-        ("ptr" to) = ccall allocateForCompact(
-            MyCapability() "ptr", compact "ptr",
-            ROUNDUP_BYTES_TO_WDS(size), p "ptr");
+        ALLOCATE(compact, ROUNDUP_BYTES_TO_WDS(size), p, to, tag);
         prim %memcpy(to, p, size, 1);
-        return (to);
+        return (tag | to);
     }
 
     case
@@ -140,7 +153,7 @@ eval:
         MUT_ARR_PTRS_FROZEN: {
 
         (should) = ccall shouldCompact(compact "ptr", p "ptr");
-        if (should == SHOULDCOMPACT_IN_CNF) { return (p); }
+        if (should == SHOULDCOMPACT_IN_CNF) { return (tag | p); }
 
         CHECK_HASH();
 
@@ -148,8 +161,7 @@ eval:
         size = SIZEOF_StgMutArrPtrs + WDS(StgMutArrPtrs_size(p));
         ptrs = StgMutArrPtrs_ptrs(p);
         cards = SIZEOF_StgMutArrPtrs + WDS(ptrs);
-        ("ptr" to) = ccall allocateForCompact(
-            MyCapability() "ptr", compact "ptr", BYTES_TO_WDS(size), p "ptr");
+        ALLOCATE(compact, BYTES_TO_WDS(size), p, to, tag);
         SET_HDR(to, StgHeader_info(p), StgHeader_ccs(p));
         StgMutArrPtrs_ptrs(to) = ptrs;
         StgMutArrPtrs_size(to) = StgMutArrPtrs_size(p);
@@ -163,7 +175,7 @@ eval:
             i = i + 1;
             goto loop0;
         }
-        return (to);
+        return (tag | to);
     }
 
     case
@@ -182,7 +194,7 @@ eval:
         CONSTR_1_1: {
 
         (should) = ccall shouldCompact(compact "ptr", p "ptr");
-        if (should == SHOULDCOMPACT_IN_CNF) { return (p); }
+        if (should == SHOULDCOMPACT_IN_CNF) { return (tag | p); }
 
       constructor:
 
@@ -194,8 +206,7 @@ eval:
         nptrs  = TO_W_(%INFO_NPTRS(%STD_INFO(info)));
         size = BYTES_TO_WDS(SIZEOF_StgHeader) + ptrs + nptrs;
 
-        ("ptr" to) = ccall allocateForCompact(
-            MyCapability() "ptr", compact "ptr", size, p "ptr");
+        ALLOCATE(compact, size, p, to, tag);
         SET_HDR(to, StgHeader_info(p), StgHeader_ccs(p));
 
         // First copy the non-pointers
@@ -218,7 +229,7 @@ eval:
             goto loop2;
         }
 
-        return (to);
+        return (tag | to);
     }
 
     // these
@@ -229,7 +240,7 @@ eval:
 
         (should) = ccall shouldCompact(compact "ptr", p "ptr");
         if (should == SHOULDCOMPACT_IN_CNF ||
-            should == SHOULDCOMPACT_STATIC) { return (p); }
+            should == SHOULDCOMPACT_STATIC) { return (tag | p); }
 
         goto constructor;
     }}

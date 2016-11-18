@@ -13,10 +13,10 @@ import Control.DeepSeq
 
 main = do
   [n] <- map read <$> getArgs
-  let m = Map.fromList [(x,show x) | x <- [1..(n::Int)]]
+  let m = Map.fromList [(x,[x*1000..x*1000+10]) | x <- [1..(n::Integer)]]
   evaluate (force m)
-  timeIt "compact" $ compact m
-  timeIt "compactWithSharing" $ compactWithSharing m
+  timeIt "compact" $ compact m >>= compactSize >>= print
+  timeIt "compactWithSharing" $ compactWithSharing m >>= compactSize >>= print
 
 timeIt :: String -> IO a -> IO a
 timeIt str io = do

@@ -357,6 +357,11 @@ compactNew (Capability *cap, StgWord size)
     aligned_size = BLOCK_ROUND_UP(size + sizeof(StgCompactNFData)
                                   + sizeof(StgCompactNFDataBlock));
 
+    // Don't allow sizes larger than a megablock, because we can't use the
+    // memory after the first mblock for storing objects.
+    if (aligned_size >= BLOCK_SIZE * BLOCKS_PER_MBLOCK)
+        aligned_size = BLOCK_SIZE * BLOCKS_PER_MBLOCK;
+
     block = compactAllocateBlockInternal(cap, aligned_size, NULL,
                                          ALLOCATE_NEW);
 
@@ -371,6 +376,8 @@ compactNew (Capability *cap, StgWord size)
 
     bd = Bdescr((P_)block);
     bd->free = (StgPtr)((W_)self + sizeof(StgCompactNFData));
+    self->hp = bd->free;
+    self->hpLim = bd->start + bd->blocks * BLOCK_SIZE_W;
 
     self->totalW = bd->blocks * BLOCK_SIZE_W;
 
@@ -396,8 +403,6 @@ compactAppendBlock (Capability       *cap,
     ASSERT (str->last->next == NULL);
     str->last->next = block;
     str->last = block;
-    if (str->nursery == NULL)
-        str->nursery = block;
 
     bd = Bdescr((P_)block);
     bd->free = (StgPtr)((W_)block + sizeof(StgCompactNFDataBlock));
@@ -432,23 +437,6 @@ has_room_for  (bdescr *bd, StgWord sizeW)
 }
 
 static rtsBool
-allocate_in_compact (StgCompactNFDataBlock *block, StgWord sizeW, StgPtr *at)
-{
-    bdescr *bd;
-    StgPtr free;
-
-    bd = Bdescr((StgPtr)block);
-    if (has_room_for(bd,sizeW)) {
-        free = bd->free;
-        bd->free += sizeW;
-        *at = free;
-        return rtsTrue;
-    } else {
-        return rtsFalse;
-    }
-}
-
-static rtsBool
 block_is_full (StgCompactNFDataBlock *block)
 {
     bdescr *bd;
@@ -465,63 +453,89 @@ block_is_full (StgCompactNFDataBlock *block)
     return (!has_room_for(bd,7));
 }
 
-static rtsBool
-allocate_loop (Capability       *cap,
-               StgCompactNFData *str,
-               StgWord           sizeW,
-               StgPtr           *at)
+void *
+allocateForCompact (Capability *cap,
+                    StgCompactNFData *str,
+                    StgWord sizeW)
 {
-    StgCompactNFDataBlock *block;
+    StgPtr to;
     StgWord next_size;
+    StgCompactNFDataBlock *block;
+    bdescr *bd;
 
-    // try the nursery first
+    ASSERT(str->nursery != NULL);
+    ASSERT(str->hp > Bdescr((P_)str->nursery)->start);
+    ASSERT(str->hp <= Bdescr((P_)str->nursery)->start +
+           Bdescr((P_)str->nursery)->blocks * BLOCK_SIZE_W);
+
  retry:
-    if (str->nursery != NULL) {
-        if (allocate_in_compact(str->nursery, sizeW, at))
-            return rtsTrue;
+    if (str->hp + sizeW < str->hpLim) {
+        to = str->hp;
+        str->hp += sizeW;
+        return to;
+    }
 
-        if (block_is_full (str->nursery)) {
-            str->nursery = str->nursery->next;
-            goto retry;
-        }
+    bd = Bdescr((P_)str->nursery);
+    bd->free = str->hp;
 
-        // try subsequent blocks
-        block = str->nursery->next;
-        while (block != NULL) {
-            if (allocate_in_compact(block, sizeW, at))
-                return rtsTrue;
+    // We know it doesn't fit in the nursery
+    // if it is a large object, allocate a new block
+    if (sizeW > LARGE_OBJECT_THRESHOLD/sizeof(W_)) {
+        next_size = BLOCK_ROUND_UP(sizeW*sizeof(W_) +
+                                   sizeof(StgCompactNFData));
+        block = compactAppendBlock(cap, str, next_size);
+        bd = Bdescr((P_)block);
+        to = bd->free;
+        bd->free += sizeW;
+        return to;
+    }
 
-            block = block->next;
+    // move the nursery past full blocks
+    do {
+        str->nursery = str->nursery->next;
+    } while (str->nursery && block_is_full (str->nursery));
+
+    if (str->nursery == NULL) {
+        str->nursery = compactAppendBlock(cap, str,
+                                          str->autoBlockW * sizeof(W_));
+        bd = Bdescr((P_)str->nursery);
+        str->hp = bd->free;
+        str->hpLim = bd->start + bd->blocks * BLOCK_SIZE_W;
+        goto retry;
+    }
+
+    // try subsequent blocks
+    for (block = str->nursery->next; block != NULL; block = block->next) {
+        bd = Bdescr((P_)block);
+        if (has_room_for(bd,sizeW)) {
+            to = bd->free;
+            bd->free += sizeW;
+            return to;
         }
     }
 
+    // If all else fails, allocate a new block of the right size.
     next_size = stg_max(str->autoBlockW * sizeof(StgWord),
                     BLOCK_ROUND_UP(sizeW * sizeof(StgWord)
                                    + sizeof(StgCompactNFDataBlock)));
 
     block = compactAppendBlock(cap, str, next_size);
-    ASSERT (str->nursery != NULL);
-    return allocate_in_compact(block, sizeW, at);
+    bd = Bdescr((P_)block);
+    to = bd->free;
+    bd->free += sizeW;
+    return to;
 }
 
-void *
-allocateForCompact (Capability *cap,
-                    StgCompactNFData *str,
-                    StgWord sizeW,
-                    StgClosure *p)
+void
+insertCompactHash (Capability *cap,
+                   StgCompactNFData *str,
+                   StgClosure *p, StgClosure *to)
 {
-    StgPtr to;
-    if (!allocate_loop(cap, str, sizeW, &to)) {
-        barf("Failed to copy object in compact, object too large\n");
+    insertHashTable(str->hash, (StgWord)p, (const void*)to);
+    if (str->header.info == &stg_COMPACT_NFDATA_CLEAN_info) {
+        str->header.info = &stg_COMPACT_NFDATA_DIRTY_info;
+        recordClosureMutated(cap, (StgClosure*)str);
     }
-    if (str->hash) {
-        insertHashTable(str->hash, (StgWord)p, (const void*)to);
-        if (str->header.info == &stg_COMPACT_NFDATA_CLEAN_info) {
-            str->header.info = &stg_COMPACT_NFDATA_DIRTY_info;
-            recordClosureMutated(cap, (StgClosure*)str);
-        }
-    }
-    return to;
 }
 
 
@@ -616,8 +630,8 @@ StgWord shouldCompact (StgCompactNFData *str, StgClosure *p)
    -------------------------------------------------------------------------- */
 
 #ifdef DEBUG
-STATIC_INLINE rtsBool
-object_in_compact (StgCompactNFData *str, StgClosure *p)
+STATIC_INLINE void
+check_object_in_compact (StgCompactNFData *str, StgClosure *p)
 {
     bdescr *bd;
 
@@ -625,14 +639,13 @@ object_in_compact (StgCompactNFData *str, StgClosure *p)
     // a compact, but let's be generous here and assume that all
     // static closures are OK.
     if (!HEAP_ALLOCED(p))
-        return rtsTrue;
+        return;
 
     bd = Bdescr((P_)p);
-    return (bd->flags & BF_COMPACT) != 0 &&
-        objectGetCompact(p) == str;
+    ASSERT((bd->flags & BF_COMPACT) != 0 && objectGetCompact(p) == str);
 }
 
-static rtsBool
+static void
 verify_mut_arr_ptrs (StgCompactNFData *str,
                      StgMutArrPtrs    *a)
 {
@@ -641,14 +654,13 @@ verify_mut_arr_ptrs (StgCompactNFData *str,
     p = (StgPtr)&a->payload[0];
     q = (StgPtr)&a->payload[a->ptrs];
     for (; p < q; p++) {
-        if (!object_in_compact(str, UNTAG_CLOSURE(*(StgClosure**)p)))
-            return rtsFalse;
+        check_object_in_compact(str, UNTAG_CLOSURE(*(StgClosure**)p));
     }
 
-    return rtsTrue;
+    return;
 }
 
-static rtsBool
+static void
 verify_consistency_block (StgCompactNFData *str, StgCompactNFDataBlock *block)
 {
     bdescr *bd;
@@ -661,24 +673,20 @@ verify_consistency_block (StgCompactNFData *str, StgCompactNFDataBlock *block)
     while (p < bd->free) {
         q = (StgClosure*)p;
 
-        if (!LOOKS_LIKE_CLOSURE_PTR(q))
-            return rtsFalse;
+        ASSERT(LOOKS_LIKE_CLOSURE_PTR(q));
 
         info = get_itbl(q);
         switch (info->type) {
         case CONSTR_1_0:
-            if (!object_in_compact(str, UNTAG_CLOSURE(q->payload[0])))
-                return rtsFalse;
+            check_object_in_compact(str, UNTAG_CLOSURE(q->payload[0]));
         case CONSTR_0_1:
             p += sizeofW(StgClosure) + 1;
             break;
 
         case CONSTR_2_0:
-            if (!object_in_compact(str, UNTAG_CLOSURE(q->payload[1])))
-                return rtsFalse;
+            check_object_in_compact(str, UNTAG_CLOSURE(q->payload[1]));
         case CONSTR_1_1:
-            if (!object_in_compact(str, UNTAG_CLOSURE(q->payload[0])))
-                return rtsFalse;
+            check_object_in_compact(str, UNTAG_CLOSURE(q->payload[0]));
         case CONSTR_0_2:
             p += sizeofW(StgClosure) + 2;
             break;
@@ -689,10 +697,9 @@ verify_consistency_block (StgCompactNFData *str, StgCompactNFDataBlock *block)
         {
             uint32_t i;
 
-            for (i = 0; i < info->layout.payload.ptrs; i++)
-                if (!object_in_compact(str, UNTAG_CLOSURE(q->payload[i])))
-                    return rtsFalse;
-
+            for (i = 0; i < info->layout.payload.ptrs; i++) {
+                check_object_in_compact(str, UNTAG_CLOSURE(q->payload[i]));
+            }
             p += sizeofW(StgClosure) + info->layout.payload.ptrs +
                 info->layout.payload.nptrs;
             break;
@@ -704,8 +711,7 @@ verify_consistency_block (StgCompactNFData *str, StgCompactNFDataBlock *block)
 
         case MUT_ARR_PTRS_FROZEN:
         case MUT_ARR_PTRS_FROZEN0:
-            if (!verify_mut_arr_ptrs(str, (StgMutArrPtrs*)p))
-                return rtsFalse;
+            verify_mut_arr_ptrs(str, (StgMutArrPtrs*)p);
             p += mut_arr_ptrs_sizeW((StgMutArrPtrs*)p);
             break;
 
@@ -716,8 +722,7 @@ verify_consistency_block (StgCompactNFData *str, StgCompactNFDataBlock *block)
             StgSmallMutArrPtrs *arr = (StgSmallMutArrPtrs*)p;
 
             for (i = 0; i < arr->ptrs; i++)
-                if (!object_in_compact(str, UNTAG_CLOSURE(arr->payload[i])))
-                    return rtsFalse;
+                check_object_in_compact(str, UNTAG_CLOSURE(arr->payload[i]));
 
             p += sizeofW(StgSmallMutArrPtrs) + arr->ptrs;
             break;
@@ -728,31 +733,28 @@ verify_consistency_block (StgCompactNFData *str, StgCompactNFDataBlock *block)
             break;
 
         default:
-            return rtsFalse;
+            barf("verify_consistency_block");
         }
     }
 
-    return rtsTrue;
+    return;
 }
 
-static rtsBool
+static void
 verify_consistency_loop (StgCompactNFData *str)
 {
     StgCompactNFDataBlock *block;
 
     block = compactGetFirstBlock(str);
     do {
-        if (!verify_consistency_block(str, block))
-            return rtsFalse;
+        verify_consistency_block(str, block);
         block = block->next;
     } while (block && block->owner);
-
-    return rtsTrue;
 }
 
 void verifyCompact (StgCompactNFData *str USED_IF_DEBUG)
 {
-    IF_DEBUG(sanity, ASSERT(verify_consistency_loop(str)));
+    IF_DEBUG(sanity, verify_consistency_loop(str));
 }
 #endif // DEBUG
 

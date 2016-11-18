@@ -72,8 +72,11 @@ INLINE_HEADER StgCompactNFData *objectGetCompact (StgClosure *closure)
 
 extern void *allocateForCompact (Capability *cap,
                                  StgCompactNFData *str,
-                                 StgWord sizeW,
-                                 StgClosure *p);
+                                 StgWord sizeW);
+
+extern void insertCompactHash (Capability *cap,
+                               StgCompactNFData *str,
+                               StgClosure *p, StgClosure *to);
 
 extern void verifyCompact (StgCompactNFData *str);
 

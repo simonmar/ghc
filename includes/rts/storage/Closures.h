@@ -459,6 +459,7 @@ typedef struct StgCompactNFData_ {
       // Total number of words in all blocks in the compact
     StgWord autoBlockW;
       // size of automatically appended blocks
+    StgPtr hp, hpLim;
     StgCompactNFDataBlock *nursery;
       // where to (try to) allocate from when appending
     StgCompactNFDataBlock *last;
