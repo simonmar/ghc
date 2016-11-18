@@ -40,7 +40,7 @@ module Data.Compact (
   ) where
 
 import Control.Concurrent
-import Control.DeepSeq (NFData, force)
+import Control.DeepSeq (NFData)
 import GHC.Prim
 import GHC.Types
 

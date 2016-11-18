@@ -622,9 +622,13 @@ INFO_TABLE_CONSTR(stg_MVAR_TSO_QUEUE,2,0,0,PRIM,"MVAR_TSO_QUEUE","MVAR_TSO_QUEUE
    Just return immediately because the structure is in NF already
    ------------------------------------------------------------------------- */
 
-INFO_TABLE( stg_COMPACT_NFDATA, 0, 0, COMPACT_NFDATA, "COMPACT_NFDATA", "COMPACT_NFDATA")
+INFO_TABLE( stg_COMPACT_NFDATA_CLEAN, 0, 5, COMPACT_NFDATA, "COMPACT_NFDATA", "COMPACT_NFDATA")
     ()
-{ foreign "C" barf("COMPACT_NFDATA object entered!") never returns; }
+{ foreign "C" barf("COMPACT_NFDATA_CLEAN object entered!") never returns; }
+
+INFO_TABLE( stg_COMPACT_NFDATA_DIRTY, 0, 5, COMPACT_NFDATA, "COMPACT_NFDATA", "COMPACT_NFDATA")
+    ()
+{ foreign "C" barf("COMPACT_NFDATA_DIRTY object entered!") never returns; }
 
 /* ----------------------------------------------------------------------------
    CHARLIKE and INTLIKE closures.

@@ -378,9 +378,7 @@ freeHashTable(HashTable *table, void (*freeDataFun)(void *) )
  * -------------------------------------------------------------------------- */
 
 void
-mapHashTable(HashTable *table,
-             void *data,
-             void (*fn)(void *data, StgWord key, const void *value) )
+mapHashTable(HashTable *table, void *data, MapHashFn fn)
 {
     long segment;
     long index;

@@ -273,6 +273,7 @@ checkClosure( const StgClosure* p )
     case TVAR:
     case THUNK_STATIC:
     case FUN_STATIC:
+    case COMPACT_NFDATA:
         {
             uint32_t i;
             for (i = 0; i < info->layout.payload.ptrs; i++) {

@@ -26,7 +26,7 @@
 #include "Trace.h"
 #include "LdvProfile.h"
 #include "CNF.h"
-#include "Hash.h"
+#include "Scav.h"
 
 #if defined(PROF_SPIN) && defined(THREADED_RTS) && defined(PARALLEL_GC)
 StgWord64 whitehole_spin = 0;
@@ -358,15 +358,6 @@ evacuate_static_object (StgClosure **link_field, StgClosure *q)
     }
 }
 
-static void
-evacuate_hash_entry(HashTable *newHash, StgWord key, const void *value)
-{
-    StgClosure *p = (StgClosure*)key;
-
-    evacuate(&p);
-    insertHashTable(newHash, (StgWord)p, value);
-}
-
 /* ----------------------------------------------------------------------------
    Evacuate an object inside a CompactNFData
 
@@ -424,10 +415,6 @@ evacuate_compact (StgPtr p)
         return;
     }
 
-    debugTrace(DEBUG_compact,
-               "compact alive @%p, gen %d, %" FMT_Word " bytes",
-               str, gen_no, str->totalW * sizeof(W_))
-
     // remove from compact_objects list
     if (bd->u.back) {
         bd->u.back->link = bd->link;
@@ -461,18 +448,18 @@ evacuate_compact (StgPtr p)
     bd->flags |= BF_EVACUATED;
     initBdescr(bd, new_gen, new_gen->to);
 
-    if (new_gen != gen) { ACQUIRE_SPIN_LOCK(&new_gen->sync); }
-    dbl_link_onto(bd, &new_gen->live_compact_objects);
-    new_gen->n_live_compact_blocks += str->totalW / BLOCK_SIZE_W;
-    if (new_gen != gen) { RELEASE_SPIN_LOCK(&new_gen->sync); }
+    if (str->hash) {
+        gen_workspace *ws = &gct->gens[new_gen_no];
+        bd->link = ws->todo_large_objects;
+        ws->todo_large_objects = bd;
+    } else {
+        if (new_gen != gen) { ACQUIRE_SPIN_LOCK(&new_gen->sync); }
+        dbl_link_onto(bd, &new_gen->live_compact_objects);
+        new_gen->n_live_compact_blocks += str->totalW / BLOCK_SIZE_W;
+        if (new_gen != gen) { RELEASE_SPIN_LOCK(&new_gen->sync); }
+    }
 
     RELEASE_SPIN_LOCK(&gen->sync);
-
-    if (str->hash) {
-        HashTable *newHash = allocHashTable();
-        mapHashTable(str->hash, evacuate_hash_entry, (void*)newHash);
-        str->hash = newHash;
-    }
 
     // Note: the object did not move in memory, because it lives
     // in pinned (BF_COMPACT) allocation, so we do not need to rewrite it
@@ -878,12 +865,6 @@ loop:
       copy(p,info,q,sizeofW(StgTRecChunk),gen_no);
       return;
 
-  case COMPACT_NFDATA:
-      // CompactNFData objects are at least one block plus the header
-      // so they are larger than the large_object_threshold (80% of
-      // block size) and never copied by value
-      barf("evacuate: compact nfdata is not large");
-      return;
   default:
     barf("evacuate: strange closure type %d", (int)(INFO_PTR_TO_STRUCT(info)->type));
   }

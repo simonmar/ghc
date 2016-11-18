@@ -258,11 +258,13 @@ firstBlockGetCompact(StgCompactNFDataBlock *block)
     return (StgCompactNFData*) ((W_)block + sizeof(StgCompactNFDataBlock));
 }
 
-static void
-freeBlockChain(StgCompactNFDataBlock *block)
+void
+compactFree(StgCompactNFData *str)
 {
-    StgCompactNFDataBlock *next;
+    StgCompactNFDataBlock *block, *next;
     bdescr *bd;
+
+    block = compactGetFirstBlock(str);
 
     for ( ; block; block = next) {
         next = block->next;
@@ -270,15 +272,6 @@ freeBlockChain(StgCompactNFDataBlock *block)
         ASSERT((bd->flags & BF_EVACUATED) == 0);
         freeGroup(bd);
     }
-}
-
-void
-compactFree(StgCompactNFData *str)
-{
-    StgCompactNFDataBlock *block;
-
-    block = compactGetFirstBlock(str);
-    freeBlockChain(block);
 }
 
 void
@@ -336,7 +329,7 @@ compactNew (Capability *cap, StgWord size)
                                          ALLOCATE_NEW);
 
     self = firstBlockGetCompact(block);
-    SET_HDR((StgClosure*)self, &stg_COMPACT_NFDATA_info, CCS_SYSTEM);
+    SET_HDR((StgClosure*)self, &stg_COMPACT_NFDATA_CLEAN_info, CCS_SYSTEM);
     self->autoBlockW = aligned_size / sizeof(StgWord);
     self->nursery = block;
     self->last = block;
@@ -491,6 +484,10 @@ allocateForCompact (Capability *cap,
     }
     if (str->hash) {
         insertHashTable(str->hash, (StgWord)p, (const void*)to);
+        if (str->header.info == &stg_COMPACT_NFDATA_CLEAN_info) {
+            str->header.info = &stg_COMPACT_NFDATA_DIRTY_info;
+            recordClosureMutated(cap, (StgClosure*)str);
+        }
     }
     return to;
 }

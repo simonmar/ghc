@@ -13,7 +13,7 @@ stg_compactAddWithSharingzh (P_ compact, P_ p)
     (hash) = ccall allocHashTable();
     StgCompactNFData_hash(compact) = hash;
     (P_ compacted) = call stg_compactAddWorkerzh(compact, p);
-    ccall freeHashTable(hash, NULL);
+    ccall freeHashTable(StgCompactNFData_hash(compact), NULL);
     StgCompactNFData_hash(compact) = NULL;
 #ifdef DEBUG
     ccall verifyCompact(compact);
