@@ -312,6 +312,40 @@ countCompactBlocks(bdescr *outer)
     return count;
 }
 
+#ifdef DEBUG
+// Like countCompactBlocks, but adjusts the size so each mblock is assumed to
+// only contain BLOCKS_PER_MBLOCK blocks.  Used in memInventory().
+StgWord
+countAllocdCompactBlocks(bdescr *outer)
+{
+    StgCompactNFDataBlock *block;
+    W_ count;
+
+    count = 0;
+    while (outer) {
+        bdescr *inner;
+
+        block = (StgCompactNFDataBlock*)(outer->start);
+        do {
+            inner = Bdescr((P_)block);
+            ASSERT (inner->flags & BF_COMPACT);
+
+            count += inner->blocks;
+            // See BlockAlloc.c:countAllocdBlocks()
+            if (inner->blocks > BLOCKS_PER_MBLOCK) {
+                count -= (MBLOCK_SIZE / BLOCK_SIZE - BLOCKS_PER_MBLOCK)
+                    * (inner->blocks/(MBLOCK_SIZE/BLOCK_SIZE));
+            }
+            block = block->next;
+        } while(block);
+
+        outer = outer->link;
+    }
+
+    return count;
+}
+#endif
+
 StgCompactNFData *
 compactNew (Capability *cap, StgWord size)
 {
@@ -322,8 +356,6 @@ compactNew (Capability *cap, StgWord size)
 
     aligned_size = BLOCK_ROUND_UP(size + sizeof(StgCompactNFData)
                                   + sizeof(StgCompactNFDataBlock));
-    if (aligned_size >= BLOCK_SIZE * BLOCKS_PER_MBLOCK)
-        aligned_size = BLOCK_SIZE * BLOCKS_PER_MBLOCK;
 
     block = compactAllocateBlockInternal(cap, aligned_size, NULL,
                                          ALLOCATE_NEW);
@@ -382,42 +414,44 @@ compactResize (Capability *cap, StgCompactNFData *str, StgWord new_size)
     StgWord aligned_size;
 
     aligned_size = BLOCK_ROUND_UP(new_size + sizeof(StgCompactNFDataBlock));
+
+    // Don't allow sizes larger than a megablock, because we can't use the
+    // memory after the first mblock for storing objects.
     if (aligned_size >= BLOCK_SIZE * BLOCKS_PER_MBLOCK)
         aligned_size = BLOCK_SIZE * BLOCKS_PER_MBLOCK;
 
     str->autoBlockW = aligned_size / sizeof(StgWord);
-
     compactAppendBlock(cap, str, aligned_size);
+}
+
+STATIC_INLINE rtsBool
+has_room_for  (bdescr *bd, StgWord sizeW)
+{
+    return (bd->free < bd->start + BLOCK_SIZE_W * BLOCKS_PER_MBLOCK
+            && bd->free + sizeW <= bd->start + BLOCK_SIZE_W * bd->blocks);
 }
 
 static rtsBool
 allocate_in_compact (StgCompactNFDataBlock *block, StgWord sizeW, StgPtr *at)
 {
     bdescr *bd;
-    StgPtr top;
     StgPtr free;
 
     bd = Bdescr((StgPtr)block);
-    top = bd->start + BLOCK_SIZE_W * bd->blocks;
-    if (bd->free + sizeW > top)
+    if (has_room_for(bd,sizeW)) {
+        free = bd->free;
+        bd->free += sizeW;
+        *at = free;
+        return rtsTrue;
+    } else {
         return rtsFalse;
-
-    free = bd->free;
-    bd->free += sizeW;
-    *at = free;
-
-    return rtsTrue;
+    }
 }
 
 static rtsBool
 block_is_full (StgCompactNFDataBlock *block)
 {
     bdescr *bd;
-    StgPtr top;
-    StgWord sizeW;
-
-    bd = Bdescr((StgPtr)block);
-    top = bd->start + BLOCK_SIZE_W * bd->blocks;
 
     // We consider a block full if we could not fit
     // an entire closure with 7 payload items
@@ -426,8 +460,9 @@ block_is_full (StgCompactNFDataBlock *block)
     // a large byte array, while at the same time
     // it avoids trying to allocate a large closure
     // in a chain of almost empty blocks)
-    sizeW = sizeofW(StgHeader) + 7;
-    return (bd->free + sizeW > top);
+
+    bd = Bdescr((StgPtr)block);
+    return (!has_room_for(bd,7));
 }
 
 static rtsBool
@@ -461,11 +496,8 @@ allocate_loop (Capability       *cap,
     }
 
     next_size = stg_max(str->autoBlockW * sizeof(StgWord),
-                    BLOCK_ROUND_UP(sizeW * sizeof(StgWord)));
-    if (next_size >= BLOCKS_PER_MBLOCK * BLOCK_SIZE)
-        next_size = BLOCKS_PER_MBLOCK * BLOCK_SIZE;
-    if (next_size < sizeW * sizeof(StgWord) + sizeof(StgCompactNFDataBlock))
-        return rtsFalse;
+                    BLOCK_ROUND_UP(sizeW * sizeof(StgWord)
+                                   + sizeof(StgCompactNFDataBlock)));
 
     block = compactAppendBlock(cap, str, next_size);
     ASSERT (str->nursery != NULL);

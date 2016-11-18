@@ -30,6 +30,10 @@ StgWord           compactContains(StgCompactNFData *str,
                                   StgPtr            what);
 StgWord           countCompactBlocks(bdescr *outer);
 
+#ifdef DEBUG
+StgWord           countAllocdCompactBlocks(bdescr *outer);
+#endif
+
 StgCompactNFDataBlock *compactAllocateBlock(Capability            *cap,
                                             StgWord                size,
                                             StgCompactNFDataBlock *previous);
