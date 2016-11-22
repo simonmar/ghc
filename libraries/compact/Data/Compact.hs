@@ -19,6 +19,7 @@
 -- holding fully evaluated data in a consecutive block of memory.
 --
 -- /Since: 1.0.0/
+
 module Data.Compact (
   -- * The Compact type
   Compact,
@@ -29,7 +30,7 @@ module Data.Compact (
   compactAdd,
   compactAddWithSharing,
 
-  -- * Inspecting Compact
+  -- * Inspecting a Compact
   getCompact,
   inCompact,
   isCompact,
@@ -46,7 +47,7 @@ import GHC.Types
 
 import Data.Compact.Internal as Internal
 
--- |Retrieve the object that was stored in a Compact
+-- | Retrieve the object that was stored in a 'Compact'
 getCompact :: Compact a -> a
 getCompact (Compact _ obj _) = obj
 
@@ -67,11 +68,11 @@ compact = Internal.compactSized 31268 False
 -- | Compact a value, retaining any internal sharing and
 -- cycles. /O(size of data)/
 --
--- This is significantly slower than 'compact', because it works by
--- maintaining a hash table mapping uncompacted objects to compacted
--- objects.
+-- This is typically about 10x slower than 'compact', because it works
+-- by maintaining a hash table mapping uncompacted objects to
+-- compacted objects.
 --
--- The NFData constraint is just to ensure that the object contains no
+-- The 'NFData- constraint is just to ensure that the object contains no
 -- functions, `compact` does not actually use it.  If your object
 -- contains any functions, then 'compactWithSharing' will fail. (and
 -- your 'NFData' instance is lying).
@@ -79,15 +80,16 @@ compact = Internal.compactSized 31268 False
 compactWithSharing :: NFData a => a -> IO (Compact a)
 compactWithSharing = Internal.compactSized 31268 True
 
--- |Add a value to an existing 'Compact'.  Behaves exactly like
+-- | Add a value to an existing 'Compact'.  Behaves exactly like
 -- 'compact' with respect to sharing and the 'NFData' constraint.
 compactAdd :: NFData a => Compact b -> a -> IO (Compact a)
 compactAdd (Compact compact# _ lock) a = withMVar lock $ \_ -> IO $ \s ->
   case compactAdd# compact# a s of { (# s1, pk #) ->
   (# s1, Compact compact# pk lock #) }
 
--- |Add a value to an existing 'Compact'.  Behaves exactly like
--- 'compact' with respect to sharing and the 'NFData' constraint.
+-- | Add a value to an existing 'Compact'.  Behaves exactly like
+-- 'compactWithSharing' with respect to sharing and the 'NFData'
+-- constraint.
 compactAddWithSharing :: NFData a => Compact b -> a -> IO (Compact a)
 compactAddWithSharing (Compact compact# _ lock) a =
   withMVar lock $ \_ -> IO $ \s ->
@@ -95,13 +97,13 @@ compactAddWithSharing (Compact compact# _ lock) a =
     (# s1, Compact compact# pk lock #) }
 
 
--- |Check if the second argument is inside the Compact
+-- | Check if the second argument is inside the 'Compact'
 inCompact :: Compact b -> a -> IO Bool
 inCompact (Compact buffer _ _) !val =
   IO (\s -> case compactContains# buffer val s of
          (# s', v #) -> (# s', isTrue# v #) )
 
--- |Check if the argument is in any Compact
+-- | Check if the argument is in any 'Compact'
 isCompact :: a -> IO Bool
 isCompact !val =
   IO (\s -> case compactContainsAny# val s of

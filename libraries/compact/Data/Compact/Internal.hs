@@ -32,13 +32,21 @@ import Control.DeepSeq
 import GHC.Prim
 import GHC.Types
 
--- | A 'Compact' contains fully evaluated, pure, and immutable data. If
--- any object in the compact is alive, then the whole compact is
--- alive. This means that 'Compact's are very cheap to keep around,
--- because the data inside a compact does not need to be traversed by
--- the garbage collector. However, the tradeoff is that the memory
--- that contains a 'Compact' cannot be recovered until the whole 'Compact'
--- is garbage.
+-- | A 'Compact' contains fully evaluated, pure, immutable data.
+--
+-- Compact serves two purposes:
+--
+-- * Data stored in a 'Compact' has no garbage collection overhead.
+--   The garbage collector considers the whole 'Compact' to be alive
+--   if there is a reference to any object within it.
+--
+-- * A 'Compact' can be serialized, stored, and deserialized again.
+--   The serialized data can only be deserialized by the exact bindary
+--   that created it, but it can be stored indefinitely before
+--   deserialization.
+--
+-- Objects can be added to an existing 'Compact' (but not removed).
+--
 data Compact a = Compact Compact# a (MVar ())
     -- we can *read* from a Compact without taking a lock, but only
     -- one thread can be writing to the compact at any given time.

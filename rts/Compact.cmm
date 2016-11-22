@@ -75,7 +75,7 @@ stg_compactAddzh (P_ compact, P_ p)
     hp = StgCompactNFData_hp(compact);                                  \
     if (hp + WDS(sizeW) <= StgCompactNFData_hpLim(compact)) {           \
         to = hp;                                                        \
-        StgCompactNFData_hp(compact) = hp + WDS(size);                  \
+        StgCompactNFData_hp(compact) = hp + WDS(sizeW);                  \
     } else {                                                            \
         ("ptr" to) = ccall allocateForCompact(                          \
             MyCapability() "ptr", compact "ptr", sizeW);                \
@@ -97,7 +97,6 @@ stg_compactAddzh (P_ compact, P_ p)
             return ();                                                  \
         }                                                               \
     }
-
 
 //
 // Evacuate and copy an object and its transitive closure into a

@@ -491,13 +491,15 @@ allocateForCompact (Capability *cap,
     }
 
     // move the nursery past full blocks
-    do {
-        str->nursery = str->nursery->next;
-    } while (str->nursery && block_is_full (str->nursery));
+    if (block_is_full (str->nursery)) {
+        do {
+            str->nursery = str->nursery->next;
+        } while (str->nursery && block_is_full(str->nursery));
 
-    if (str->nursery == NULL) {
-        str->nursery = compactAppendBlock(cap, str,
-                                          str->autoBlockW * sizeof(W_));
+        if (str->nursery == NULL) {
+            str->nursery = compactAppendBlock(cap, str,
+                                              str->autoBlockW * sizeof(W_));
+        }
         bd = Bdescr((P_)str->nursery);
         str->hp = bd->free;
         str->hpLim = bd->start + bd->blocks * BLOCK_SIZE_W;
@@ -525,6 +527,7 @@ allocateForCompact (Capability *cap,
     bd->free += sizeW;
     return to;
 }
+
 
 void
 insertCompactHash (Capability *cap,
