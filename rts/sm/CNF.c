@@ -1094,6 +1094,10 @@ fixup_late(StgCompactNFData *str, StgCompactNFDataBlock *block)
     } while(block);
 
     str->nursery = nursery;
+    bd = Bdescr((P_)nursery);
+    str->hp = bd->free;
+    str->hpLim = bd->start + bd->blocks * BLOCK_SIZE_W;
+
     str->totalW = totalW;
 }
 

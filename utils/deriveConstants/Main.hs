@@ -571,6 +571,7 @@ wanteds os = concat
           ,closureField C "StgCompactNFData" "hp"
           ,closureField C "StgCompactNFData" "hpLim"
           ,closureField C "StgCompactNFData" "hash"
+          ,closureField C "StgCompactNFData" "result"
 
           ,structSize   C "StgCompactNFDataBlock"
           ,structField  C "StgCompactNFDataBlock" "self"

@@ -460,6 +460,9 @@ typedef struct StgCompactNFData_ {
     StgWord autoBlockW;
       // size of automatically appended blocks
     StgPtr hp, hpLim;
+      // the beginning and end of the free area in the nursery block.  This is
+      // just a convenience so that we can avoid multiple indirections through
+      // the nursery pointer below during compaction.
     StgCompactNFDataBlock *nursery;
       // where to (try to) allocate from when appending
     StgCompactNFDataBlock *last;
@@ -468,6 +471,9 @@ typedef struct StgCompactNFData_ {
     struct hashtable *hash;
       // the hash table for the current compaction, or NULL if
       // there's no (sharing-preserved) compaction in progress.
+    StgClosure *result;
+      // Used temporarily to store the result of compaction.  Doesn't need to be
+      // a GC root.
 } StgCompactNFData;
 
 

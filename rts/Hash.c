@@ -198,9 +198,11 @@ lookupHashTable(const HashTable *table, StgWord key)
     segment = bucket / HSEGSIZE;
     index = bucket % HSEGSIZE;
 
-    for (hl = table->dir[segment][index]; hl != NULL; hl = hl->next)
-        if (table->compare(hl->key, key))
+    CompareFunction *cmp = table->compare;
+    for (hl = table->dir[segment][index]; hl != NULL; hl = hl->next) {
+        if (cmp(hl->key, key))
             return (void *) hl->data;
+    }
 
     /* It's not there */
     return NULL;

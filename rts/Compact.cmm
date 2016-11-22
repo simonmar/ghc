@@ -1,45 +1,76 @@
+/* -----------------------------------------------------------------------------
+ *
+ * (c) The GHC Team, 2015-2016
+ *
+ * Support for compact regions.  See Note [Compact Normal Forms] in
+ * rts/sm/CNF.c
+ *
+ * ---------------------------------------------------------------------------*/
+
 #include "Cmm.h"
 #include "sm/ShouldCompact.h"
 
-/* -----------------------------------------------------------------------------
-   CompactNFData primitives
 
-   See Note [Compact Normal Forms]
-   -------------------------------------------------------------------------  */
-
+//
+// compactAddWithSharing#
+//   :: State# RealWorld
+//   -> Compact#
+//   -> a
+//   -> (# State# RealWorld, a #)
+//
 stg_compactAddWithSharingzh (P_ compact, P_ p)
 {
     W_ hash;
+    ASSERT(StgCompactNFData_hash(compact) == NULL);
     (hash) = ccall allocHashTable();
     StgCompactNFData_hash(compact) = hash;
-    (P_ compacted) = call stg_compactAddWorkerzh(compact, p);
+
+    // Note [compactAddWorker result]
+    //
+    // compactAddWorker needs somewhere to store the result - this is
+    // so that it can be tail-recursive.  It must be an address that
+    // doesn't move during GC, so we can't use heap or stack.
+    // Therefore we have a special field in the StgCompactNFData
+    // object to hold the final result of compaction.
+    W_ pp;
+    pp = compact + SIZEOF_StgHeader + OFFSET_StgCompactNFData_result;
+    call stg_compactAddWorkerzh(compact, p, pp);
     ccall freeHashTable(StgCompactNFData_hash(compact), NULL);
     StgCompactNFData_hash(compact) = NULL;
 #ifdef DEBUG
     ccall verifyCompact(compact);
 #endif
-    return (compacted);
+    return (P_[pp]);
 }
 
+
+//
+// compactAdd#
+//   :: State# RealWorld
+//   -> Compact#
+//   -> a
+//   -> (# State# RealWorld, a #)
+//
 stg_compactAddzh (P_ compact, P_ p)
 {
     ASSERT(StgCompactNFData_hash(compact) == NULL);
-    (P_ compacted) = call stg_compactAddWorkerzh(compact, p);
+
+    W_ pp; // See Note [compactAddWorker result]
+    pp = compact + SIZEOF_StgHeader + OFFSET_StgCompactNFData_result;
+    call stg_compactAddWorkerzh(compact, p, pp);
 #ifdef DEBUG
     ccall verifyCompact(compact);
 #endif
-    return (compacted);
+    return (P_[pp]);
 }
 
-#define CHECK_HASH()                                                    \
-    hash = StgCompactNFData_hash(compact);                              \
-    if (hash != NULL) {                                                 \
-        ("ptr" hashed) = ccall lookupHashTable(hash "ptr", p "ptr");    \
-        if (hashed != NULL) {                                           \
-            return (hashed);                                            \
-        }                                                               \
-    }
 
+//
+// Allocate space for a new object in the compact region.  We first try
+// the fast method using the hp/hpLim fields of StgCompactNFData, and
+// if that fails we fall back to calling allocateForCompact() which
+// will append a new block if necessary.
+//
 #define ALLOCATE(compact,sizeW,p,to, tag)                               \
     hp = StgCompactNFData_hp(compact);                                  \
     if (hp + WDS(sizeW) <= StgCompactNFData_hpLim(compact)) {           \
@@ -54,11 +85,36 @@ stg_compactAddzh (P_ compact, P_ p)
     }
 
 
-stg_compactAddWorkerzh (P_ compact, P_ p)
+//
+// Look up a pointer in the hash table if we're doing sharing.
+//
+#define CHECK_HASH()                                                    \
+    hash = StgCompactNFData_hash(compact);                              \
+    if (hash != NULL) {                                                 \
+        ("ptr" hashed) = ccall lookupHashTable(hash "ptr", p "ptr");    \
+        if (hashed != NULL) {                                           \
+            P_[pp] = hashed;                                            \
+            return ();                                                  \
+        }                                                               \
+    }
+
+
+//
+// Evacuate and copy an object and its transitive closure into a
+// compact.  This function is called recursively as we traverse the
+// data structure.  It takes the location to store the address of the
+// compacted object as an argument, so that it can be tail-recursive.
+//
+stg_compactAddWorkerzh (
+    P_ compact,  // The Compact# object
+    P_ p,        // The object to compact
+    W_ pp)       // Where to store a pointer to the compacted object
 {
     W_ type, info, should, hash, hp, tag;
+    P_ p;
     P_ hashed;
 
+    again: MAYBE_GC(again);
     STK_CHK_GEN();
 
 eval:
@@ -133,7 +189,7 @@ eval:
     case ARR_WORDS: {
 
         (should) = ccall shouldCompact(compact "ptr", p "ptr");
-        if (should == SHOULDCOMPACT_IN_CNF) { return (tag | p); }
+        if (should == SHOULDCOMPACT_IN_CNF) { P_[pp] = p; return(); }
         if (should == SHOULDCOMPACT_PINNED) {
             jump stg_raisezh(base_GHCziIOziException_cannotCompactPinned_closure);
         }
@@ -144,8 +200,9 @@ eval:
         W_ size;
         size = SIZEOF_StgArrBytes + StgArrBytes_bytes(p);
         ALLOCATE(compact, ROUNDUP_BYTES_TO_WDS(size), p, to, tag);
+        P_[pp] = to;
         prim %memcpy(to, p, size, 1);
-        return (tag | to);
+        return();
     }
 
     case
@@ -153,7 +210,7 @@ eval:
         MUT_ARR_PTRS_FROZEN: {
 
         (should) = ccall shouldCompact(compact "ptr", p "ptr");
-        if (should == SHOULDCOMPACT_IN_CNF) { return (tag | p); }
+        if (should == SHOULDCOMPACT_IN_CNF) { P_[pp] = p; return(); }
 
         CHECK_HASH();
 
@@ -162,6 +219,7 @@ eval:
         ptrs = StgMutArrPtrs_ptrs(p);
         cards = SIZEOF_StgMutArrPtrs + WDS(ptrs);
         ALLOCATE(compact, BYTES_TO_WDS(size), p, to, tag);
+        P_[pp] = tag | to;
         SET_HDR(to, StgHeader_info(p), StgHeader_ccs(p));
         StgMutArrPtrs_ptrs(to) = ptrs;
         StgMutArrPtrs_size(to) = StgMutArrPtrs_size(p);
@@ -169,13 +227,14 @@ eval:
         i = 0;
       loop0:
         if (i < ptrs) {
-            (P_ r1) = call stg_compactAddWorkerzh(
-                compact, W_[p + SIZEOF_StgMutArrPtrs + WDS(i)]);
-            P_[to + SIZEOF_StgMutArrPtrs + WDS(i)] = r1;
+            W_ q;
+            q = to + SIZEOF_StgMutArrPtrs + WDS(i);
+            call stg_compactAddWorkerzh(
+                compact, P_[p + SIZEOF_StgMutArrPtrs + WDS(i)], q);
             i = i + 1;
             goto loop0;
         }
-        return (tag | to);
+        return();
     }
 
     case
@@ -194,7 +253,7 @@ eval:
         CONSTR_1_1: {
 
         (should) = ccall shouldCompact(compact "ptr", p "ptr");
-        if (should == SHOULDCOMPACT_IN_CNF) { return (tag | p); }
+        if (should == SHOULDCOMPACT_IN_CNF) { P_[pp] = p; return(); }
 
       constructor:
 
@@ -207,9 +266,10 @@ eval:
         size = BYTES_TO_WDS(SIZEOF_StgHeader) + ptrs + nptrs;
 
         ALLOCATE(compact, size, p, to, tag);
+        P_[pp] = tag | to;
         SET_HDR(to, StgHeader_info(p), StgHeader_ccs(p));
 
-        // First copy the non-pointers
+        // First, copy the non-pointers
         if (nptrs > 0) {
             i = ptrs;
         loop1:
@@ -218,21 +278,24 @@ eval:
             if (i < ptrs + nptrs) goto loop1;
         }
 
-        // Next recursively compact and copy the pointers
+        // Next, recursively compact and copy the pointers
+        if (ptrs == 0) { return(); }
         i = 0;
       loop2:
-        if (i < ptrs) {
-            (P_ r) = call stg_compactAddWorkerzh(
-                compact, StgClosure_payload(p,i));
-            StgClosure_payload(to,i) = r;
-            i = i + 1;
-            goto loop2;
+        W_ q;
+        q = to + SIZEOF_StgHeader + OFFSET_StgClosure_payload + WDS(i);
+        // Tail-call the last one.  This means we don't build up a deep
+        // stack when compacting lists.
+        if (i == ptrs - 1) {
+            jump stg_compactAddWorkerzh(compact, StgClosure_payload(p,i), q);
         }
-
-        return (tag | to);
+        call stg_compactAddWorkerzh(compact, StgClosure_payload(p,i), q);
+        i = i + 1;
+        goto loop2;
     }
 
-    // these
+    // these might be static closures that we can avoid copying into
+    // the compact if they don't refer to CAFs.
     case
         CONSTR_0_1,
         CONSTR_0_2,
@@ -240,12 +303,12 @@ eval:
 
         (should) = ccall shouldCompact(compact "ptr", p "ptr");
         if (should == SHOULDCOMPACT_IN_CNF ||
-            should == SHOULDCOMPACT_STATIC) { return (tag | p); }
+            should == SHOULDCOMPACT_STATIC) { P_[pp] = p; return(); }
 
         goto constructor;
     }}
 
-    return (p);
+    ccall barf("stg_compactWorkerzh");
 }
 
 stg_compactSizzezh (P_ compact)
@@ -296,6 +359,11 @@ stg_compactGetFirstBlockzh ( P_ str )
 
     block = str - SIZEOF_StgCompactNFDataBlock::W_;
     ASSERT (StgCompactNFDataBlock_owner(block) == str);
+
+    // We have to save Hp back to the nursery, otherwise the size will
+    // be wrong.
+    bd = Bdescr(StgCompactNFData_nursery(str));
+    bdescr_free(bd) = StgCompactNFData_hp(str);
 
     bd = Bdescr(str);
     size = bdescr_free(bd) - bdescr_start(bd);
