@@ -45,7 +45,37 @@ import GHC.Types
 --   that created it, but it can be stored indefinitely before
 --   deserialization.
 --
--- Objects can be added to an existing 'Compact' (but not removed).
+-- Compacts are self-contained, so compacting data involves copying
+-- it; if you have data that lives in two 'Compact's, each will have a
+-- separate copy of the data.
+--
+-- The cost of compaction is similar to the cost of GC for the same
+-- data, but it is perfomed only once.  However, retainining internal
+-- sharing during the compaction process is very costly, so it is
+-- optional; there are two ways to create a 'Compact': 'compact' and
+-- 'compactWithSharing'.
+--
+-- Data can be added to an existing 'Compact' with 'compactAdd' or
+-- 'compactAddWithSharing'.
+--
+-- Data in a compact doesn't ever move, so compacting data is also a
+-- way to pin arbitrary data structures in memory.
+--
+-- There are some limitations on what can be compacted:
+--
+-- * Functions.  Compaction only applies to data.
+--
+-- * Pinned 'ByteArray#' objects cannot be compacted.  This is for a
+--   good reason: the memory is pinned so that it can be referenced by
+--   address (the address might be stored in a C data structure, for
+--   example), so we can't make a copy of it to store in the 'Compact'.
+--
+-- * Mutable objects also cannot be compacted, because subsequent
+--   mutation would destroy the property that a compact is
+--   self-contained.
+--
+-- If comapction encounters any of the above, a 'CompactionFailed'
+-- exception will be thrown by the compaction operation.
 --
 data Compact a = Compact Compact# a (MVar ())
     -- we can *read* from a Compact without taking a lock, but only
