@@ -14,6 +14,6 @@ test('compact_function', exit_code(1), compile_and_run, [''])
 test('compact_mutable', exit_code(1), compile_and_run, [''])
 test('compact_pinned', exit_code(1), compile_and_run, [''])
 test('compact_gc', ignore_stdout, compile_and_run, [''])
-test('compact_share', normal, compile_and_run, [''])
+test('compact_share', ignore_stdout, compile_and_run, [''])
 test('compact_bench', [ ignore_stdout, extra_run_opts('100') ],
                        compile_and_run, [''])
