@@ -24,7 +24,7 @@ module DynFlags (
         WarningFlag(..), WarnReason(..),
         Language(..),
         PlatformConstants(..),
-        FatalMessager, LogAction, FlushOut(..), FlushErr(..),
+        FatalMessager, LogAction, LogFinaliser, FlushOut(..), FlushErr(..),
         ProfAuto(..),
         glasgowExtsFlags,
         warningGroups, warningHierarchies,
@@ -48,6 +48,7 @@ module DynFlags (
         GhcMode(..), isOneShot,
         GhcLink(..), isNoLink,
         PackageFlag(..), PackageArg(..), ModRenaming(..),
+        packageFlagsChanged,
         IgnorePackageFlag(..), TrustFlag(..),
         PkgConfRef(..),
         Option(..), showOpt,
@@ -1254,9 +1255,15 @@ data TrustFlag
 data PackageFlag
   = ExposePackage   String PackageArg ModRenaming -- ^ @-package@, @-package-id@
   | HidePackage     String -- ^ @-hide-package@
-  deriving (Eq)
--- NB: equality instance is used by InteractiveUI to test if
--- package flags have changed.
+  deriving (Eq) -- NB: equality instance is used by packageFlagsChanged
+
+packageFlagsChanged :: DynFlags -> DynFlags -> Bool
+packageFlagsChanged idflags1 idflags0 =
+    packageFlags idflags1 /= packageFlags idflags0 ||
+    ignorePackageFlags idflags1 /= ignorePackageFlags idflags0 ||
+    pluginPackageFlags idflags1 /= pluginPackageFlags idflags0 ||
+    trustFlags idflags1 /= trustFlags idflags0 ||
+    extraPkgConfs idflags1 [] /= extraPkgConfs idflags0 []
 
 instance Outputable PackageFlag where
     ppr (ExposePackage n arg rn) = text n <> braces (ppr arg <+> ppr rn)
@@ -4531,6 +4538,7 @@ data PkgConfRef
   = GlobalPkgConf
   | UserPkgConf
   | PkgConfFile FilePath
+  deriving Eq
 
 addPkgConfRef :: PkgConfRef -> DynP ()
 addPkgConfRef p = upd $ \s -> s { extraPkgConfs = (p:) . extraPkgConfs s }
