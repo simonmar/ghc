@@ -904,6 +904,18 @@ allocateMightFail (Capability *cap, W_ n)
         bd = cap->r.rCurrentNursery->link;
 
         if (bd == NULL) {
+            bdescr *currentNurseryBlock = cap->r.rCurrentNursery;
+            nursery *oldNursery = cap->r.rNursery;
+            if (getNewNursery(cap)) {
+                dbl_link_remove(currentNurseryBlock, &oldNursery->blocks);
+                oldNursery->n_blocks -= currentNurseryBlock->blocks;
+                dbl_link_onto(currentNurseryBlock, &cap->r.rNursery->blocks);
+                cap->r.rNursery->n_blocks += currentNurseryBlock->blocks;
+                bd = cap->r.rCurrentNursery->link;
+            }
+        }
+
+        if (bd == NULL) {
             // The nursery is empty: allocate a fresh block (we can't
             // fail here).
             ACQUIRE_SM_LOCK;
@@ -1024,6 +1036,27 @@ allocatePinned (Capability *cap, W_ n)
         // So first, we try taking the next block from the nursery, in
         // the same way as allocate().
         bd = cap->r.rCurrentNursery->link;
+
+        if (bd == NULL) {
+            // Before going to the block allocator, which has a global lock, we
+            // can check whether there is another nursery chunk to take.  But we
+            // can't just switch nurseries at this point: the caller is not
+            // prepared to do OpenNursery() when we return, to reload Hp and so
+            // forth.  So, we switch nurseries, but we take the current heap
+            // block, remove it from the old nursery, and prepend it to the new
+            // nursery. The GC will fix up the size of the nurseries later, and
+            // we avoid the global lock.
+            bdescr *currentNurseryBlock = cap->r.rCurrentNursery;
+            nursery *oldNursery = cap->r.rNursery;
+            if (getNewNursery(cap)) {
+                dbl_link_remove(currentNurseryBlock, &oldNursery->blocks);
+                oldNursery->n_blocks -= currentNurseryBlock->blocks;
+                dbl_link_onto(currentNurseryBlock, &cap->r.rNursery->blocks);
+                cap->r.rNursery->n_blocks += currentNurseryBlock->blocks;
+                bd = cap->r.rCurrentNursery->link;
+            }
+        }
+
         if (bd == NULL) {
             // The nursery is empty: allocate a fresh block (we can't fail
             // here).
