@@ -1,5 +1,5 @@
 {-# LANGUAGE GADTs, BangPatterns, RecordWildCards,
-    GeneralizedNewtypeDeriving, NondecreasingIndentation #-}
+    GeneralizedNewtypeDeriving, NondecreasingIndentation, TupleSections #-}
 
 module CmmBuildInfoTables
   ( CAFSet, CAFEnv, cafAnal
@@ -8,6 +8,7 @@ module CmmBuildInfoTables
 
 import GhcPrelude hiding (succ)
 
+import Id
 import BlockId
 import Hoopl.Block
 import Hoopl.Graph
@@ -34,7 +35,6 @@ import qualified Data.Map as Map
 import Data.Set (Set)
 import qualified Data.Set as Set
 import Data.Tuple
-import Control.Monad
 import Control.Monad.Trans.State
 import Control.Monad.Trans.Class
 
@@ -179,22 +179,21 @@ implemented.
    dynamically. In this case we skip this optimisation and generate
    the singleton SRT.
 
-2. [FUN] A reference to a top-level FUN can point directly to its SRT
-   instead.
-   - this only works within a single module, where we know what the
-     FUN's SRT is.
-   - we cannot do this for THUNKs, because after the THUNK is
-     evaluated we don't want to keep its CAFs alive any more.
+2. [FUN] A static function closure can also be an SRT, we simply put
+   the SRT entries as fields in the static closure.  This makes a lot
+   of sense: the static references are just like the free variables of
+   the FUN closure.
+
+   (note: we can't do this for THUNKs, because the thunk gets
+   overwritten when it is entered, so we wouldn't be able to share
+   this SRT with other info tables that want to refer to it (see
+   [Common] below). FUNs are immutable so don't have this problem.)
 
 3. [Common] Identical SRTs can be commoned up.
 
 4. [Filter] If an SRT A refers to an SRT B and a closure C, and B also
    refers to C (perhaps transitively), then we can omit the reference
    to C from A.
-
-
-As an alternative to [FUN]: we could merge the FUN's SRT with the FUN
-object itself.
 -}
 
 -- ---------------------------------------------------------------------
@@ -365,6 +364,19 @@ getCAFs (CmmProc top_info topLbl _ g)
   , isStaticRep rep && isThunkRep rep = [(g_entry g, mkCAFLabel topLbl)]
   | otherwise = []
 
+-- | Get the list of blocks that correspond to FUN_STATIC closures.
+-- These are the blocks for which if we have an SRT we can merge it
+-- with the static closure. [FUN]
+getStaticFuns :: CmmDecl -> [(BlockId, CLabel)]
+getStaticFuns (CmmData _ _) = []
+getStaticFuns (CmmProc top_info _ _ g)
+  | Just info <- mapLookup (g_entry g) (info_tbls top_info)
+  , let rep = cit_rep info
+  , Just (id, _) <- cit_clo info
+  , let lbl = mkLocalClosureLabel (idName id) (idCafInfo id)
+  , isStaticRep rep && isFunRep rep = [(g_entry g, lbl)]
+  | otherwise = []
+
 
 -- | Put the labelled blocks that we will be annotating with SRTs into
 -- dependency order.  This is so that we can process them one at a
@@ -428,6 +440,7 @@ doSRTs dflags topSRT tops = do
   let (cafEnvs, declss) = unzip tops
       cafEnv = mapUnions cafEnvs
       decls = concat declss
+      staticFuns = mapFromList (concatMap getStaticFuns decls)
 
   -- Put the decls in dependency order. Why? So that we can implement
   -- [Shortcut] and [Filter].  If we need to refer to an SRT that has
@@ -439,14 +452,19 @@ doSRTs dflags topSRT tops = do
 
   -- On each strongly-connected group of decls, construct the SRT
   -- closures and the SRT fields for info tables.
-  let (((declss, pairs), _srtMap), topSRT') =
+  let ((result, _srtMap), topSRT') =
         initUs_ us $
         flip runStateT topSRT $
         flip runStateT Map.empty $
-        mapAndUnzipM (doSCC dflags) sccs
+        mapM (doSCC dflags staticFuns) sccs
+
+      (declss, pairs, funSRTs) = unzip3 result
 
   -- Next, update the info tables with the SRTs
-  let decls' = map (updInfoSRTs (mapFromList (concat pairs))) decls
+  let
+    srtFieldMap = mapFromList (concat pairs)
+    funSRTMap = mapFromList (concat funSRTs)
+    decls' = concatMap (updInfoSRTs dflags srtFieldMap funSRTMap) decls
 
   return (topSRT', concat declss ++ decls')
 
@@ -454,26 +472,29 @@ doSRTs dflags topSRT tops = do
 -- | Build the SRT for a strongly-connected component of blocks
 doSCC
   :: DynFlags
+  -> LabelMap CLabel
   -> SCC (Label, CAFLabel, Set CAFLabel)
   -> StateT SRTMap
         (StateT ModuleSRTInfo UniqSM)
         ( [CmmDecl]           -- generated SRTs
         , [(Label, CLabel)] -- SRT fields for info tables
+        , [(Label, [SRTEntry])]        -- SRTs to attach to static functions
         )
 
-doSCC dflags  (AcyclicSCC (l, cafLbl, cafs)) =
-  oneSRT dflags [l] [cafLbl] cafs
+doSCC dflags funSRTInfo  (AcyclicSCC (l, cafLbl, cafs)) =
+  oneSRT dflags funSRTInfo [l] [cafLbl] cafs
 
-doSCC dflags (CyclicSCC nodes) = do
+doSCC dflags funSRTInfo (CyclicSCC nodes) = do
   -- build a single SRT for the whole cycle
   let (blockids, lbls, cafsets) = unzip3 nodes
       cafs = foldr Set.delete (Set.unions cafsets) lbls
-  oneSRT dflags blockids lbls cafs
+  oneSRT dflags funSRTInfo blockids lbls cafs
 
 
 -- | Build an SRT for a set of blocks
 oneSRT
   :: DynFlags
+  -> LabelMap CLabel
   -> [Label]                          -- blocks in this set
   -> [CAFLabel]                         -- labels for those blocks
   -> Set CAFLabel                       -- SRT for this set
@@ -481,9 +502,10 @@ oneSRT
        (StateT ModuleSRTInfo UniqSM)
        ( [CmmDecl]                      -- SRT objects we built
        , [(Label, CLabel)]            -- SRT fields for these blocks' itbls
+       , [(Label, [SRTEntry])]        -- SRTs to attach to static functions
        )
 
-oneSRT dflags blockids lbls cafs = do
+oneSRT dflags funSRTInfo blockids lbls cafs = do
   srtMap <- get
   topSRT <- lift get
   let
@@ -514,12 +536,12 @@ oneSRT dflags blockids lbls cafs = do
     [] -> do
       srtTrace "oneSRT: empty" (ppr lbls) $ return ()
       updateSRTMap Nothing
-      return ([], [])
+      return ([], [], [])
 
     [one@(SRTEntry lbl)]
       | not (labelDynamic dflags (thisModule topSRT) lbl) -> do
         updateSRTMap (Just one)
-        return ([], [(l, lbl) | l <- blockids])
+        return ([], map (,lbl) blockids, [])
 
     cafList ->
       -- Check whether an SRT with the same entries has been emitted already.
@@ -528,11 +550,21 @@ oneSRT dflags blockids lbls cafs = do
         Just srtEntry@(SRTEntry srtLbl)  -> do
           srtTrace "oneSRT [Common]" (ppr lbls <+> ppr srtLbl) $ return ()
           updateSRTMap (Just srtEntry)
-          return ([], [(l, srtLbl) | l <- blockids])
+          return ([], map (,srtLbl) blockids, [])
         Nothing -> do
           -- No duplicates: we have to build a new SRT object
           srtTrace "oneSRT: new" (ppr lbls <+> ppr filtered) $ return ()
-          (decls, srtEntry) <- lift . lift $ buildSRT dflags cafList
+          let
+            -- Can we merge this SRT with a FUN_STATIC closure?
+            maybeFunClosure = listToMaybe
+              [ (l,b) | b <- blockids, Just l <- [mapLookup b funSRTInfo] ]
+          (decls, funSRTs, srtEntry) <-
+            case maybeFunClosure of
+              Just (fun,block) ->
+                return ( [], [(block, cafList)], SRTEntry fun )
+              Nothing -> do
+                (decls, entry) <- lift . lift $ buildSRT dflags cafList
+                return (decls, [], entry)
           updateSRTMap (Just srtEntry)
           let allBelowThis = Set.union allBelow filtered
               oldFlatSRTs = flatSRTs topSRT
@@ -541,7 +573,7 @@ oneSRT dflags blockids lbls cafs = do
           lift (put (topSRT { dedupSRTs = newDedupSRTs
                             , flatSRTs = newFlatSRTs }))
           let SRTEntry lbl = srtEntry
-          return (decls, [(l, lbl) | l <- blockids])
+          return (decls, map (,lbl) blockids, funSRTs)
 
 
 -- | build a static SRT object (or a chain of objects) from a list of
@@ -565,7 +597,7 @@ buildSRT dflags cafSet = mkChain cafSet
       case those of
         [] -> do
           (decl,lbl) <- newSRT dflags these
-          return ([decl],lbl)
+          return ([decl], lbl)
         _more -> do
           (rest, rest_lbl) <- mkChain (head these : those)
           (decl,lbl) <- newSRT dflags (rest_lbl : tail these)
@@ -587,21 +619,53 @@ newSRT dflags refs = do
   return (mkDataLits (Section Data lbl) lbl fields, SRTEntry lbl)
 
 
-{- Note [reverse gs]
+-- | Update info tables with references to their SRTs. Also generate
+-- static closures, splicing in SRT fields as necessary.
+updInfoSRTs
+  :: DynFlags
+  -> LabelMap CLabel               -- SRT labels for each block
+  -> LabelMap [SRTEntry]           -- SRTs to merge into FUN_STATIC closures
+  -> CmmDecl
+  -> [CmmDecl]
 
-   It is important to keep the code blocks in the same order,
-   otherwise binary sizes get slightly bigger.  I'm not completely
-   sure why this is, perhaps the assembler generates bigger jump
-   instructions for forward refs.  --SDM
--}
+updInfoSRTs dflags srt_env funSRTEnv (CmmProc top_info top_l live g) =
+  CmmProc top_info { info_tbls = newTopInfo } top_l live g :
+    maybe [] ((:[]) . snd) maybeStaticFun
+  where
+    oldTopInfo = info_tbls top_info
+    newTopInfo = mapMapWithKey updInfoTbl oldTopInfo
+    updInfoTbl l info_tbl
+      | l == g_entry g, Just (inf, _) <- maybeStaticFun = inf
+      | otherwise  = info_tbl { cit_srt = mapLookup l srt_env }
 
-updInfoSRTs :: LabelMap CLabel -> CmmDecl -> CmmDecl
-updInfoSRTs srt_env (CmmProc top_info top_l live g) =
-  CmmProc (top_info {info_tbls = mapMapWithKey updInfoTbl (info_tbls top_info)}) top_l live g
-  where updInfoTbl l info_tbl
-             = info_tbl { cit_srt = mapLookup l srt_env }
-updInfoSRTs _ t = t
+    -- Generate static closures [FUN]
+    maybeStaticFun :: Maybe (CmmInfoTable, CmmDecl)
+    maybeStaticFun
+      | Just info_tbl@CmmInfoTable{..} <-
+           mapLookup (g_entry g) (info_tbls top_info)
+      , Just (id, ccs) <- cit_clo
+      , isStaticRep cit_rep =
+        let
+          (newInfo, srtEntries) = case mapLookup (g_entry g) funSRTEnv of
+            Nothing ->
+              (info_tbl { cit_srt = mapLookup (g_entry g) srt_env }, [])
+            Just srtEntries -> srtTrace "maybeStaticFun" (ppr res)
+              (info_tbl { cit_rep = new_rep }, res)
+              where res = [ CmmLabel lbl | SRTEntry lbl <- srtEntries ]
+          fields = mkStaticClosureFields dflags info_tbl ccs (idCafInfo id)
+            srtEntries
+          new_rep = case cit_rep of
+             HeapRep sta ptrs nptrs ty ->
+               HeapRep sta (ptrs + length srtEntries) nptrs ty
+             _other -> panic "maybeStaticFun"
+          lbl = mkLocalClosureLabel (idName id) (idCafInfo id)
+        in
+          Just (newInfo, mkDataLits (Section Data lbl) lbl fields)
+      | otherwise = Nothing
+
+updInfoSRTs _ _ _ t = [t]
 
 
 srtTrace :: String -> SDoc -> b -> b
+-- srtTrace = pprTrace
 srtTrace _ _ b = b
