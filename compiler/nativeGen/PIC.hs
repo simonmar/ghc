@@ -162,7 +162,7 @@ cmmMakePicReference dflags lbl
         | OSAIX <- platformOS $ targetPlatform dflags
         = CmmMachOp (MO_Add W32)
                 [ CmmReg (CmmGlobal PicBaseReg)
-                , CmmLit $ picRelative
+                , CmmLit $ picRelative dflags
                                 (platformArch   $ targetPlatform dflags)
                                 (platformOS     $ targetPlatform dflags)
                                 lbl ]
@@ -171,7 +171,7 @@ cmmMakePicReference dflags lbl
         | ArchPPC_64 _ <- platformArch $ targetPlatform dflags
         = CmmMachOp (MO_Add W32) -- code model medium
                 [ CmmReg (CmmGlobal PicBaseReg)
-                , CmmLit $ picRelative
+                , CmmLit $ picRelative dflags
                                 (platformArch   $ targetPlatform dflags)
                                 (platformOS     $ targetPlatform dflags)
                                 lbl ]
@@ -179,7 +179,7 @@ cmmMakePicReference dflags lbl
         | (gopt Opt_PIC dflags || WayDyn `elem` ways dflags) && absoluteLabel lbl
         = CmmMachOp (MO_Add (wordWidth dflags))
                 [ CmmReg (CmmGlobal PicBaseReg)
-                , CmmLit $ picRelative
+                , CmmLit $ picRelative dflags
                                 (platformArch   $ targetPlatform dflags)
                                 (platformOS     $ targetPlatform dflags)
                                 lbl ]
@@ -400,7 +400,7 @@ howToAccessLabel dflags _ _ _ _ _
 -- | Says what we we have to add to our 'PIC base register' in order to
 --      get the address of a label.
 
-picRelative :: Arch -> OS -> CLabel -> CmmLit
+picRelative :: DynFlags -> Arch -> OS -> CLabel -> CmmLit
 
 -- Darwin, but not x86_64:
 -- The PIC base register points to the PIC base label at the beginning
@@ -409,15 +409,15 @@ picRelative :: Arch -> OS -> CLabel -> CmmLit
 -- We have already made sure that all labels that are not from the current
 -- module are accessed indirectly ('as' can't calculate differences between
 -- undefined labels).
-picRelative arch OSDarwin lbl
+picRelative dflags arch OSDarwin lbl
         | arch /= ArchX86_64
-        = CmmLabelDiffOff lbl mkPicBaseLabel 0
+        = CmmLabelDiffOff lbl mkPicBaseLabel 0 (wordWidth dflags)
 
 -- On AIX we use an indirect local TOC anchored by 'gotLabel'.
 -- This way we use up only one global TOC entry per compilation-unit
 -- (this is quite similiar to GCC's @-mminimal-toc@ compilation mode)
-picRelative _ OSAIX lbl
-        = CmmLabelDiffOff lbl gotLabel 0
+picRelative dflags _ OSAIX lbl
+        = CmmLabelDiffOff lbl gotLabel 0 (wordWidth dflags)
 
 -- PowerPC Linux:
 -- The PIC base register points to our fake GOT. Use a label difference
@@ -425,9 +425,9 @@ picRelative _ OSAIX lbl
 -- We have made sure that *everything* is accessed indirectly, so this
 -- is only used for offsets from the GOT to symbol pointers inside the
 -- GOT.
-picRelative ArchPPC os lbl
+picRelative dflags ArchPPC os lbl
         | osElfTarget os
-        = CmmLabelDiffOff lbl gotLabel 0
+        = CmmLabelDiffOff lbl gotLabel 0 (wordWidth dflags)
 
 
 -- Most Linux versions:
@@ -437,7 +437,7 @@ picRelative ArchPPC os lbl
 -- The PIC base register is %rip, we use foo@gotpcrel for symbol pointers,
 -- and a GotSymbolOffset label for other things.
 -- For reasons of tradition, the symbol offset label is written as a plain label.
-picRelative arch os lbl
+picRelative _ arch os lbl
         | osElfTarget os || (os == OSDarwin && arch == ArchX86_64)
         = let   result
                         | Just (SymbolPtr, lbl') <- dynamicLinkerLabelInfo lbl
@@ -448,7 +448,7 @@ picRelative arch os lbl
 
           in    result
 
-picRelative _ _ _
+picRelative _ _ _ _
         = panic "PositionIndependentCode.picRelative undefined for this platform"
 
 

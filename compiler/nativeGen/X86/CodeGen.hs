@@ -2665,10 +2665,11 @@ createJumpTable :: DynFlags -> [Maybe BlockId] -> Section -> CLabel
 createJumpTable dflags ids section lbl
     = let jumpTable
             | gopt Opt_PIC dflags =
-                  let jumpTableEntryRel Nothing
-                          = CmmStaticLit (CmmInt 0 (wordWidth dflags))
+                  let ww = wordWidth dflags
+                      jumpTableEntryRel Nothing
+                          = CmmStaticLit (CmmInt 0 ww)
                       jumpTableEntryRel (Just blockid)
-                          = CmmStaticLit (CmmLabelDiffOff blockLabel lbl 0)
+                          = CmmStaticLit (CmmLabelDiffOff blockLabel lbl 0 ww)
                           where blockLabel = mkAsmTempLabel (getUnique blockid)
                   in map jumpTableEntryRel ids
             | otherwise = map (jumpTableEntry dflags) ids

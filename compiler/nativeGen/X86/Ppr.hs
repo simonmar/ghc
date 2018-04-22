@@ -470,9 +470,9 @@ pprDataItem' dflags lit
                   --
                   case lit of
                   -- A relative relocation:
-                  CmmLabelDiffOff _ _ _ ->
-                      [text "\t.long\t" <> pprImm imm,
-                       text "\t.long\t0"]
+                  CmmLabelDiffOff _ _ _ w ->
+                      (text "\t.long\t" <> pprImm imm :
+                       if w == W64 then [text "\t.long 0\t"] else [])
                   _ ->
                       [text "\t.quad\t" <> pprImm imm]
 

@@ -251,7 +251,7 @@ cafTransfers contLbls entry topLbl = mkBTransfer3 first middle last
         addCaf e set = case e of
                CmmLit (CmmLabel c)              -> add c set
                CmmLit (CmmLabelOff c _)         -> add c set
-               CmmLit (CmmLabelDiffOff c1 c2 _) -> add c1 $ add c2 set
+               CmmLit (CmmLabelDiffOff c1 c2 _ _) -> add c1 $ add c2 set
                _ -> set
 
         add l s = if hasCAF l then Set.insert (mkCAFLabel l) s
