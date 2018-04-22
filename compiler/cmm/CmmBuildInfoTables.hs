@@ -77,8 +77,12 @@ In each case, the info table refers to the SRT.
 
 info->srt is non-zero if there's an SRT
 info->f.srt_offset refers to the SRT
-(but see TODO below, we can improve this)
 
+On x86_64, we can do one optimisation to the info table representation
+here.  The offset to the SRT can be stored in 32 bits (all code lives
+within a 2GB region in x86_64's small memory model), so we can save a
+word in the info table by storing the srt_offset in the srt field,
+which is half a word.
 
 EXAMPLE
 ^^^^^^^
@@ -163,9 +167,6 @@ implemented.
 
 TODO: alternative to [FUN]: merge the FUN's SRT with the FUN object
 itself.
-
-TODO: make info->srt be an offset to the SRT, or zero if none (save
-one word per info table that has an SRT)
 -}
 
 -- ---------------------------------------------------------------------
