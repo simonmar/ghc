@@ -6,7 +6,7 @@
 Loading interface files
 -}
 
-{-# LANGUAGE CPP #-}
+{-# LANGUAGE CPP, BangPatterns, RecordWildCards, NondecreasingIndentation #-}
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 module LoadIface (
         -- Importing one thing
@@ -441,6 +441,34 @@ loadInterface doc_str mod from
             loc_doc = text loc
         in
         initIfaceLcl (mi_semantic_module iface) loc_doc (mi_boot iface) $ do
+
+        let
+          -- In IfL, we defer some work until it is demanded using forkM,
+          -- such as building TyThings from IfaceDecls. These thunks are
+          -- stored in the ExternalPackageState, and they might never be
+          -- poked.  If we're not careful, these thunks will capture the
+          -- state of the loaded program when we read an interface file,
+          -- and retain all that data for ever.
+          --
+          -- Therefore, when loading a package interface file , we use
+          -- a "clean" version of the HscEnv with all the data about
+          -- the currently loaded program stripped out. Most of the
+          -- fields can be panics because we'll never read them, but
+          -- hsc_HPT needs to be empty because this interface will
+          -- cause other interfaces to be loaded recursively, and when
+          -- looking up those interfaces we use the HPT in
+          -- loadInterface.  We know that none of the interfaces below
+          -- here can refer to home-package modules however, so it's
+          -- safe for the HPT to be empty.
+          cleanTopEnv HscEnv{..} =
+             HscEnv {  hsc_targets      = panic "cleanTopEnv: hsc_targets"
+                    ,  hsc_mod_graph    = panic "cleanTopEnv: hsc_mod_graph"
+                    ,  hsc_IC           = panic "cleanTopEnv: hsc_IC"
+                    ,  hsc_HPT          = emptyHomePackageTable
+                    , .. }
+
+        updTopEnv cleanTopEnv $ do
+        !_ <- getTopEnv        -- force the updTopEnv
 
         --      Load the new ModIface into the External Package State
         -- Even home-package interfaces loaded by loadInterface
