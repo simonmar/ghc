@@ -168,13 +168,13 @@ $1_$2_$3_ALL_HC_OPTS = \
  $$(if $$(findstring YES,$$($1_$2_DYNAMIC_TOO)),$$(if $$(findstring v,$3),-dynamic-too))
 
 $1_$2_$3_ALL_CC_OPTS = \
+ $$(if $$(findstring YES,$$($1_$2_SplitSections)),-ffunction-sections -fdata-sections) \
  $$(WAY_$3_CC_OPTS) \
  $$($1_$2_DIST_GCC_CC_OPTS) \
  $$($1_$2_$3_CC_OPTS) \
  $$($$(basename $$<)_CC_OPTS) \
  $$($1_$2_EXTRA_CC_OPTS) \
- $$(EXTRA_CC_OPTS) \
- $$(if $$(findstring YES,$$($1_$2_SplitSections)),-ffunction-sections -fdata-sections)
+ $$(EXTRA_CC_OPTS)
 
 $1_$2_$3_GHC_CC_OPTS = \
  $$(addprefix -optc, $$($1_$2_$3_ALL_CC_OPTS)) \

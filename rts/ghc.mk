@@ -400,6 +400,11 @@ rts/RtsUtils_CC_OPTS += -DGhcEnableTablesNextToCode=\"$(GhcEnableTablesNextToCod
 #
 rts/xxhash_CC_OPTS += -O3 -ffast-math -ftree-vectorize
 
+# Printer.c has some functions for use in gdb, like findPtr().  But
+# -ffunction-sections would drop these because they aren't referenced anywhere,
+# so we have to turn it off.
+rts/Printer_CC_OPTS += -fno-function-sections
+
 # Compile various performance-critical pieces *without* -fPIC -dynamic
 # even when building a shared library.  If we don't do this, then the
 # GC runs about 50% slower on x86 due to the overheads of PIC.  The
