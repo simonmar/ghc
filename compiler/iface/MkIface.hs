@@ -308,7 +308,8 @@ mkIface_ hsc_env maybe_old_fingerprint
      -- scope available. (#5534)
      maybeGlobalRdrEnv :: GlobalRdrEnv -> Maybe GlobalRdrEnv
      maybeGlobalRdrEnv rdr_env
-         | targetRetainsAllBindings (hscTarget dflags) = Just rdr_env
+         | targetRetainsAllBindings (hscTarget dflags)
+         && not (gopt Opt_GhciNoFullLocalEnv dflags)   = Just rdr_env
          | otherwise                                   = Nothing
 
      deliberatelyOmitted :: String -> a
