@@ -5,7 +5,11 @@
 DEPTH=15
 WIDTH=40
 for i in $(seq -w 1 $WIDTH); do
-  echo "module DummyLevel0M$i where" > DummyLevel0M$i.hs;
+  echo "{-# LANGUAGE TypeFamilies #-}" > DummyLevel0M$i.hs;
+  echo "module DummyLevel0M$i where" >> DummyLevel0M$i.hs;
+  echo "data TDummyLevel0M$i" >> DummyLevel0M$i.hs;
+  echo "type family FDummyLevel0M$i a" >> DummyLevel0M$i.hs;
+  echo "type instance FDummyLevel0M$i TDummyLevel0M$i = ()" >> DummyLevel0M$i.hs;
 done
 for l in $(seq 1 $DEPTH); do
   for i in $(seq -w 1 $WIDTH); do
