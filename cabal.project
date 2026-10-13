@@ -3,3 +3,4 @@ packages: utils/unlit
           utils/genprimopcode
           utils/deriveConstants
           utils/genapply
+          utils/hp2ps
