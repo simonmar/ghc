@@ -259,6 +259,12 @@ ghc.nix/
 .clangd
 dist-newstyle/
 
+# buck2, and the files that `cabal buck2` generates
+buck-out/
+BUCK.cabal.bzl
+cabal-buck2/
+/third-party/
+
 # -----------------------------------------------------------------------------
 # CI
 

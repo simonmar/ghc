@@ -1,0 +1,62 @@
+load("@prelude//toolchains:demo.bzl", "system_demo_toolchains")
+load("@prelude//transitions:utils.bzl", "transition_utils")
+load("@haskell-toolchains//:defaults.bzl", "CABAL_GHC", "CABAL_GHC_PKG", "default_haskell_toolchain")
+load(":stages.bzl", "STAGES", "stage_alias", "stage_tool")
+
+system_demo_toolchains()
+
+# The stage of a configuration. stage0 is represented by the absence of
+# ghc_stage, so that a target built at stage0 is the same configured target
+# whether it is reached by a transition or not, and so that the tools that
+# a build runs (exec deps, which are configured for the execution platform)
+# are built by the bootstrap GHC. A select() matches stage0 with DEFAULT.
+constraint_setting(
+    name = "ghc_stage",
+    visibility = ["PUBLIC"],
+)
+
+[
+    constraint_value(
+        name = stage,
+        constraint_setting = ":ghc_stage",
+        visibility = ["PUBLIC"],
+    )
+    for stage in STAGES
+]
+
+transition_utils.modify_constraints_transition(
+    name = "to-stage0",
+    remove = [":stage0"],
+    visibility = ["PUBLIC"],
+)
+
+[
+    transition_utils.modify_constraints_transition(
+        name = "to-" + stage,
+        add = [":" + stage],
+        visibility = ["PUBLIC"],
+    )
+    for stage in STAGES[1:]
+]
+
+# The tools of stage N (N > 0), built at stage N-1.
+_STAGE_TOOLS = {
+    "ghc": "root//ghc:ghc",
+    "ghc-pkg": "root//utils/ghc-pkg:ghc-pkg",
+}
+
+[
+    stage_alias(
+        name = stage + "-" + tool,
+        actual = actual,
+        stage = STAGES[i],
+    )
+    for i, stage in enumerate(STAGES[1:])
+    for tool, actual in _STAGE_TOOLS.items()
+]
+
+default_haskell_toolchain(
+    name = "haskell",
+    compiler = stage_tool("ghc", CABAL_GHC),
+    packager = stage_tool("ghc-pkg", CABAL_GHC_PKG),
+)

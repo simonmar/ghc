@@ -1,0 +1,5 @@
+-- The project that `cabal buck2` generates the buck2 build from.
+packages: utils/unlit
+          utils/genprimopcode
+          utils/deriveConstants
+          utils/genapply
