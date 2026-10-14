@@ -10,6 +10,7 @@ packages: utils/unlit
           libraries/directory
           libraries/file-io
           libraries/filepath
+          libraries/ghc-boot-th-next
           libraries/ghc-platform
           libraries/haskeline
           libraries/hpc
@@ -34,3 +35,8 @@ packages: utils/unlit
 -- needs temporary, which needs directory, which needs file-io).
 tests: False
 benchmarks: False
+
+-- ghc-boot-th-next vendors the in-tree TH AST definitions for the stage1
+-- compiler: see Note [Bootstrapping Template Haskell].
+package ghc-boot-th-next
+  flags: +bootstrap

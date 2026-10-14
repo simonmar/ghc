@@ -56,7 +56,9 @@ Library
         cpp-options: -DBOOTSTRAP_TH
         build-depends:
             ghc-prim
-        hs-source-dirs: @SourceRoot@ ../ghc-internal/src
+        -- Only ghc-boot-th-next is built with this flag; configure links
+        -- ghc-internal into its directory.
+        hs-source-dirs: @SourceRoot@ ghc-internal/src
         exposed-modules:
             GHC.Boot.TH.Lib
             GHC.Boot.TH.Syntax

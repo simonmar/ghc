@@ -1015,12 +1015,18 @@ AC_CONFIG_FILES(
 
 dnl ghc-boot-th and ghc-boot-th-next come from one template, which is
 dnl instantiated with a different package name suffix and source directory
-dnl for each: see Note [Bootstrapping Template Haskell].
+dnl for each: see Note [Bootstrapping Template Haskell]. ghc-boot-th-next's
+dnl sources are those of ghc-boot-th and ghc-internal, linked into its own
+dnl directory: a build system may require a package's sources to be there.
 m4_define([GHC_BOOT_TH_CABAL],
   [AC_CONFIG_FILES([$1:libraries/ghc-boot-th/ghc-boot-th.cabal.in],
     [sed -e 's|@Suffix@|$2|g' -e 's|@SourceRoot@|$3|g' $1 > $1.tmp && mv $1.tmp $1])])
 GHC_BOOT_TH_CABAL([libraries/ghc-boot-th/ghc-boot-th.cabal], [], [.])
-GHC_BOOT_TH_CABAL([libraries/ghc-boot-th-next/ghc-boot-th-next.cabal], [-next], [../ghc-boot-th])
+GHC_BOOT_TH_CABAL([libraries/ghc-boot-th-next/ghc-boot-th-next.cabal], [-next], [ghc-boot-th])
+AC_CONFIG_LINKS([
+  libraries/ghc-boot-th-next/ghc-boot-th:libraries/ghc-boot-th
+  libraries/ghc-boot-th-next/ghc-internal:libraries/ghc-internal
+])
 
 dnl Create the VERSION file, satisfying #22322.
 printf "$ProjectVersion" > VERSION

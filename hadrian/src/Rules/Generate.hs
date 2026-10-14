@@ -380,7 +380,8 @@ templateRules = do
                    "libraries/ghc-boot-th-next/ghc-boot-th-next.cabal" $ mconcat
     [ projectVersion
     , interpolateVar "Suffix" $ pure "-next"
-    , interpolateVar "SourceRoot" $ pure "../ghc-boot-th"
+    -- configure links ghc-boot-th into ghc-boot-th-next's directory
+    , interpolateVar "SourceRoot" $ pure "ghc-boot-th"
     ]
   templateRule "libraries/ghci/ghci.cabal" $ projectVersion
   templateRule "libraries/ghc-heap/ghc-heap.cabal" $ projectVersion
