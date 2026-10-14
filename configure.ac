@@ -1015,12 +1015,48 @@ AC_CONFIG_FILES(
 
 dnl ghc-boot-th and ghc-boot-th-next come from one template, which is
 dnl instantiated with a different package name suffix and source directory
-dnl for each: see Note [Bootstrapping Template Haskell].
+dnl for each. See Note [Bootstrapping Template Haskell].
 m4_define([GHC_BOOT_TH_CABAL],
   [AC_CONFIG_FILES([$1:libraries/ghc-boot-th/ghc-boot-th.cabal.in],
     [sed -e 's|@Suffix@|$2|g' -e 's|@SourceRoot@|$3|g' $1 > $1.tmp && mv $1.tmp $1])])
 GHC_BOOT_TH_CABAL([libraries/ghc-boot-th/ghc-boot-th.cabal], [], [.])
-GHC_BOOT_TH_CABAL([libraries/ghc-boot-th-next/ghc-boot-th-next.cabal], [-next], [../ghc-boot-th])
+GHC_BOOT_TH_CABAL([libraries/ghc-boot-th-next/ghc-boot-th-next.cabal], [-next], [ghc-boot-th])
+
+dnl ghc-boot-th-next's sources are those of ghc-boot-th and ghc-internal. A
+dnl build system may require a package's sources to be under the package's
+dnl own directory (buck2 does), so configure links each source file into
+dnl libraries/ghc-boot-th-next, at the same path relative to libraries.
+dnl
+dnl The files are linked one by one, because linking the two source
+dnl directories would confuse file watchers. A watcher that follows a
+dnl symlink to a directory can report changes in that directory under the
+dnl symlink's path instead of the directory's own path. A build that depends
+dnl on the original files then misses changes to them. A symlink to a file
+dnl doesn't cause this, because watchers watch directories, not files.
+dnl
+dnl The list has to name the source file of every module that
+dnl ghc-boot-th.cabal.in has with the bootstrap flag. If a module is missing
+dnl here, the build of ghc-boot-th-next fails because it can't find the
+dnl module's source.
+m4_define([GHC_BOOT_TH_NEXT_SOURCES], [
+  ghc-boot-th/GHC/Boot/TH/Lib.hs
+  ghc-boot-th/GHC/Boot/TH/Lib/Map.hs
+  ghc-boot-th/GHC/Boot/TH/Monad.hs
+  ghc-boot-th/GHC/Boot/TH/Ppr.hs
+  ghc-boot-th/GHC/Boot/TH/PprLib.hs
+  ghc-boot-th/GHC/Boot/TH/Syntax.hs
+  ghc-boot-th/GHC/ForeignSrcLang/Type.hs
+  ghc-boot-th/GHC/LanguageExtensions/Type.hs
+  ghc-boot-th/GHC/Lexeme.hs
+  ghc-internal/src/GHC/Internal/ForeignSrcLang.hs
+  ghc-internal/src/GHC/Internal/LanguageExtensions.hs
+  ghc-internal/src/GHC/Internal/Lexeme.hs
+  ghc-internal/src/GHC/Internal/TH/Lib.hs
+  ghc-internal/src/GHC/Internal/TH/Monad.hs
+  ghc-internal/src/GHC/Internal/TH/Syntax.hs
+])
+AC_CONFIG_LINKS(m4_foreach_w([source], GHC_BOOT_TH_NEXT_SOURCES,
+  [libraries/ghc-boot-th-next/source:libraries/source ]))
 
 dnl Create the VERSION file, satisfying #22322.
 printf "$ProjectVersion" > VERSION
