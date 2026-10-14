@@ -23,6 +23,11 @@ packages: utils/unlit
           libraries/unix
           libraries/xhtml
           utils/haddock/haddock-library
+          utils/ghc-toolchain
+          utils/ghc-toolchain/exe
+          utils/hpc
+          utils/hsc2hs
+          utils/runghc
 
 -- The boot libraries' own test-suites and benchmarks aren't part of the GHC
 -- build, and some of them would make cyclic dependencies (file-io's test-suite
