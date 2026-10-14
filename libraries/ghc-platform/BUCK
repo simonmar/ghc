@@ -1,0 +1,13 @@
+# Hand-maintained: add extra targets below, or stop calling
+# generated_targets() to fully take over this package's BUCK rules.
+#
+# generated_targets() can be customised (see cabal_targets() in
+# buck2/cabal.bzl), e.g.
+#
+#     generated_targets(
+#         defaults = {"*": {"compiler_flags": ["-O2"]}},
+#         overrides = {"my-test": {"test_args": ["--quick"]}},
+#     )
+load(":BUCK.cabal.bzl", "generated_targets")
+
+generated_targets()

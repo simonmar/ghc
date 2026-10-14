@@ -4,3 +4,28 @@ packages: utils/unlit
           utils/deriveConstants
           utils/genapply
           utils/hp2ps
+          -- Libraries built by the bootstrap compiler (stage0)
+          libraries/Cabal/Cabal-syntax
+          libraries/Cabal/Cabal
+          libraries/directory
+          libraries/file-io
+          libraries/filepath
+          libraries/ghc-platform
+          libraries/haskeline
+          libraries/hpc
+          libraries/os-string
+          libraries/process
+          libraries/semaphore-compat
+          libraries/template-haskell-lift
+          libraries/template-haskell-quasiquoter
+          libraries/terminfo
+          libraries/time
+          libraries/unix
+          libraries/xhtml
+          utils/haddock/haddock-library
+
+-- The boot libraries' own test-suites and benchmarks aren't part of the GHC
+-- build, and some of them would make cyclic dependencies (file-io's test-suite
+-- needs temporary, which needs directory, which needs file-io).
+tests: False
+benchmarks: False
