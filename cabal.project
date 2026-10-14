@@ -10,8 +10,10 @@ packages: utils/unlit
           libraries/directory
           libraries/file-io
           libraries/filepath
+          libraries/ghc-boot
           libraries/ghc-boot-th-next
           libraries/ghc-platform
+          libraries/ghci
           libraries/haskeline
           libraries/hpc
           libraries/os-string
@@ -26,6 +28,7 @@ packages: utils/unlit
           utils/haddock/haddock-library
           utils/ghc-toolchain
           utils/ghc-toolchain/exe
+          utils/ghc-pkg
           utils/hpc
           utils/hsc2hs
           utils/runghc
@@ -39,4 +42,11 @@ benchmarks: False
 -- ghc-boot-th-next vendors the in-tree TH AST definitions for the stage1
 -- compiler: see Note [Bootstrapping Template Haskell].
 package ghc-boot-th-next
+  flags: +bootstrap
+
+-- As Hadrian builds them at stage0.
+package ghc-boot
+  flags: +bootstrap
+
+package ghci
   flags: +bootstrap
