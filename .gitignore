@@ -261,11 +261,18 @@ ghc.nix/
 .clangd
 dist-newstyle/
 
-# buck2, and the files that `cabal buck2` generates
+# buck2, and the files that `cabal buck2` generates. That includes the BUCK
+# file of each package, which customisation of the package's targets doesn't
+# change: that goes in cabal-buck2.bzl.
 buck-out/
 BUCK.cabal.bzl
 cabal-buck2/
 /third-party/
+/compiler/BUCK
+/driver/**/BUCK
+/ghc/BUCK
+/libraries/**/BUCK
+/utils/**/BUCK
 
 # -----------------------------------------------------------------------------
 # CI
