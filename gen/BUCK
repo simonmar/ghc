@@ -1,0 +1,28 @@
+# Sources that GHC's build generates (see hadrian/src/Rules/Generate.hs).
+
+load("@toolchains//:stages.bzl", "STAGES")
+
+export_file(name = "ghc_boot.py")
+
+# The modules of ghc-boot that its Setup.hs would generate, which `cabal buck2
+# --enable-custom-setup` doesn't run: see cabal-buck2.bzl.
+genrule(
+    name = "ghc-boot-version",
+    srcs = ["//hadrian/cfg:system.config"],
+    out = "GHC/Version.hs",
+    cmd = "python3 $(location :ghc_boot.py) version $SRCS $OUT",
+    visibility = ["PUBLIC"],
+)
+
+# The platform that the libraries of a stage run on: the host at stage0, and
+# the target at the later stages.
+genrule(
+    name = "ghc-boot-platform-host",
+    srcs = select(
+        {"toolchains//:" + stage: ["//hadrian/cfg:default.target"] for stage in STAGES[1:]} |
+        {"DEFAULT": ["//hadrian/cfg:default.host.target"]},
+    ),
+    out = "GHC/Platform/Host.hs",
+    cmd = "python3 $(location :ghc_boot.py) platform-host $SRCS $OUT",
+    visibility = ["PUBLIC"],
+)

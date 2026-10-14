@@ -1,0 +1,6 @@
+# What configure found, for the buck2 build.
+
+[
+    export_file(name = f, visibility = ["PUBLIC"])
+    for f in ["system.config", "default.host.target", "default.target"]
+]
