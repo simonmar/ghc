@@ -1,5 +1,7 @@
 -- The project that `cabal buck2` generates the buck2 build from.
-packages: utils/unlit
+packages: compiler
+          ghc
+          utils/unlit
           utils/genprimopcode
           utils/deriveConstants
           utils/genapply
@@ -50,3 +52,18 @@ package ghc-boot
 
 package ghci
   flags: +bootstrap
+
+-- The stage1 compiler, built by the bootstrap compiler, with the flags Hadrian
+-- gives it. Cabal won't otherwise build the ghc library: it is one of the
+-- packages that come with the bootstrap compiler, which Cabal doesn't
+-- reinstall by default.
+allow-boot-library-installs: True
+
+-- Not +internal-interpreter: like stage0's ghci (see Settings/Packages.hs in
+-- Hadrian), and the stage1 compiler, which runs on the bootstrap compiler's
+-- RTS, can't load the code it compiles into itself anyway.
+package ghc
+  flags: +bootstrap
+
+package ghc-bin
+  flags: +interpreter +threaded

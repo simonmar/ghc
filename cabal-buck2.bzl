@@ -2,6 +2,16 @@
 # packages: package name -> component name -> attributes (see buck2/cabal.bzl).
 
 OVERRIDES = {
+    # What the Setup.hs of each would generate: see gen/BUCK.
+    "ghc": {
+        "ghc": {
+            "srcs": {
+                "GHC.Platform.Constants": "//gen:platform-constants",
+                "GHC.Settings.Config": "//gen:settings-config",
+            },
+            "deps": ["//gen:primop-includes"],
+        },
+    },
     "ghc-boot": {
         "ghc-boot": {
             "srcs": {

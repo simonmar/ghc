@@ -1,8 +1,20 @@
-# Sources that GHC's build generates (see hadrian/src/Rules/Generate.hs).
+# Sources that GHC's build generates (see hadrian/src/Rules/Generate.hs), from
+# configure's outputs and the packages' sources.
 
-load("@toolchains//:stages.bzl", "STAGES")
+load("@toolchains//:stages.bzl", "STAGES", "stage_number")
+load(":defs.bzl", "settings_config")
 
-export_file(name = "ghc_boot.py")
+export_file(name = "generate.py")
+
+# The ghc-toolchain target file of the platform that the code built at a stage
+# runs on: the host at stage0, and the target at the later stages.
+alias(
+    name = "target",
+    actual = select(
+        {"toolchains//:" + stage: "//hadrian/cfg:default.target" for stage in STAGES[1:]} |
+        {"DEFAULT": "//hadrian/cfg:default.host.target"},
+    ),
+)
 
 # The modules of ghc-boot that its Setup.hs would generate, which `cabal buck2
 # --enable-custom-setup` doesn't run: see cabal-buck2.bzl.
@@ -10,19 +22,76 @@ genrule(
     name = "ghc-boot-version",
     srcs = ["//hadrian/cfg:system.config"],
     out = "GHC/Version.hs",
-    cmd = "python3 $(location :ghc_boot.py) version $SRCS $OUT",
+    cmd = "python3 $(location :generate.py) version $SRCS $OUT",
     visibility = ["PUBLIC"],
 )
 
-# The platform that the libraries of a stage run on: the host at stage0, and
-# the target at the later stages.
 genrule(
     name = "ghc-boot-platform-host",
-    srcs = select(
-        {"toolchains//:" + stage: ["//hadrian/cfg:default.target"] for stage in STAGES[1:]} |
-        {"DEFAULT": ["//hadrian/cfg:default.host.target"]},
-    ),
     out = "GHC/Platform/Host.hs",
-    cmd = "python3 $(location :ghc_boot.py) platform-host $SRCS $OUT",
+    cmd = "python3 $(location :generate.py) platform-host $(location :target) $OUT",
+    visibility = ["PUBLIC"],
+)
+
+# What the ghc library's Setup.hs would generate.
+
+genrule(
+    name = "primops.txt",
+    out = "primops.txt",
+    cmd = "python3 $(location :generate.py) primops-txt $(location :target) $(location //compiler:ghc-extra-source-files)/GHC/Builtin/primops.txt.pp $OUT",
+)
+
+# The files that genprimopcode generates from primops.txt, which the compiler's
+# sources #include, and the option of genprimopcode for each.
+_PRIMOP_INCLUDES = {
+    "primop-code-size.hs-incl": "--code-size",
+    "primop-commutable.hs-incl": "--commutable",
+    "primop-data-decl.hs-incl": "--data-decl",
+    "primop-deprecations.hs-incl": "--wired-in-deprecations",
+    "primop-docs.hs-incl": "--wired-in-docs",
+    "primop-effects.hs-incl": "--primop-effects",
+    "primop-fixity.hs-incl": "--fixity",
+    "primop-is-cheap.hs-incl": "--is-cheap",
+    "primop-is-work-free.hs-incl": "--is-work-free",
+    "primop-list.hs-incl": "--primop-list",
+    "primop-out-of-line.hs-incl": "--out-of-line",
+    "primop-primop-info.hs-incl": "--primop-primop-info",
+    "primop-strictness.hs-incl": "--strictness",
+    "primop-tag.hs-incl": "--primop-tag",
+    "primop-vector-tycons.hs-incl": "--primop-vector-tycons",
+    "primop-vector-tys.hs-incl": "--primop-vector-tys",
+    "primop-vector-tys-exports.hs-incl": "--primop-vector-tys-exports",
+    "primop-vector-uniques.hs-incl": "--primop-vector-uniques",
+}
+
+genrule(
+    name = "primop-includes-dir",
+    out = "primop-includes",
+    cmd = "mkdir -p $OUT && " + " && ".join([
+        "$(exe //utils/genprimopcode:genprimopcode) {} < $(location :primops.txt) > $OUT/{}".format(option, file)
+        for file, option in _PRIMOP_INCLUDES.items()
+    ]),
+)
+
+prebuilt_cxx_library(
+    name = "primop-includes",
+    header_only = True,
+    header_dirs = [":primop-includes-dir"],
+    visibility = ["PUBLIC"],
+)
+
+genrule(
+    name = "platform-constants",
+    out = "GHC/Platform/Constants.hs",
+    cmd = "$(exe //utils/deriveConstants:deriveConstants) --gen-haskell-type -o $OUT",
+    visibility = ["PUBLIC"],
+)
+
+settings_config(
+    name = "settings-config",
+    generate = ":generate.py",
+    library = "//compiler:ghc",
+    stage = stage_number(),
+    system_config = "//hadrian/cfg:system.config",
     visibility = ["PUBLIC"],
 )
