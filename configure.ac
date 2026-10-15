@@ -1013,6 +1013,10 @@ AC_CONFIG_FILES(
   utils/runghc/runghc.cabal
 ])
 
+dnl The compiler's bounds on the version of LLVM. (Hadrian writes each version
+dnl with "," for "."; the versions are whole numbers, so there are none.)
+AC_CONFIG_FILES([compiler/GHC/CmmToLlvm/Version/Bounds.hs])
+
 dnl ghc-boot-th and ghc-boot-th-next come from one template, which is
 dnl instantiated with a different package name suffix and source directory
 dnl for each: see Note [Bootstrapping Template Haskell]. ghc-boot-th-next's
