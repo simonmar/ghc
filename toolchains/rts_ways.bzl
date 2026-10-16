@@ -73,8 +73,8 @@ RTS_VARIANTS = {
 def rts_libraries(name, rts):
     """The libraries of each variant of `rts` (a label) for the
     configuration, as GHC names them: those of the ways that the build mode
-    links programs (see buck2/haskell.bzl), dynamic or static, and profiled
-    in a profiling configuration (which links statically)."""
+    links programs (see buck2/haskell.bzl): dynamic ones or static ones, or
+    profiled static ones in a profiling configuration."""
     static = [rts_way_name(units) for units in rts_way_combinations(_VARIANT_UNITS) if "dyn" not in units]
     dynamic = [rts_way_name(units) for units in rts_way_combinations(_VARIANT_UNITS) if "dyn" in units]
 
@@ -87,8 +87,12 @@ def rts_libraries(name, rts):
         variants = select({
             RTS_WAY_UNITS["p"]: variants(static),
             "DEFAULT": select({
-                "root//buck2/constraints:opt": variants(static + dynamic),
-                "DEFAULT": variants(dynamic),
+                "root//buck2/constraints:static": variants(static),
+                "root//buck2/constraints:shared": variants(dynamic),
+                "DEFAULT": select({
+                    "root//buck2/constraints:opt": variants(static),
+                    "DEFAULT": variants(dynamic),
+                }),
             }),
         }),
         visibility = ["PUBLIC"],
