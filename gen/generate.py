@@ -6,18 +6,22 @@ Hadrian does (hadrian/src/Rules/Generate.hs).
     generate.py platform-host TARGET OUT
     generate.py settings-config SYSTEM_CONFIG STAGE UNIT_ID OUT
     generate.py primops-txt TARGET PRIMOPS_TXT_PP OUT
+    generate.py derived-constants TARGET SYSTEM_CONFIG STAGE DERIVE_CONSTANTS RTS GENERATED_INCLUDE OUT
 
 SYSTEM_CONFIG is hadrian/cfg/system.config, TARGET a ghc-toolchain target
 file (hadrian/cfg/default{.host,}.target). STAGE is the stage that builds the
 compiler, 0 for the bootstrap compiler; UNIT_ID is the unit id of the ghc
-library.
+library. RTS is the rts's source directory, GENERATED_INCLUDE where its
+configure script put the headers it generated.
 """
 
 import ast
 import inspect
 import re
+import os
 import subprocess
 import sys
+import tempfile
 
 
 def fail(message):
@@ -148,11 +152,33 @@ def primops_txt(target, primops_txt_pp):
     return result.stdout
 
 
+# DerivedConstants.h of the rts, by deriveConstants, which compiles C with the
+# target's C compiler against the rts's headers (see
+# deriveConstantsBuilderArgs).
+def derived_constants(target, system_config, stage, derive_constants, rts, generated_include):
+    cc, cc_flags = target_field(target, r"tgtCCompiler\s*=\s*Cc\s*\{\s*ccProgram\s*=\s*Program\s*\{\s*prgPath\s*=\s*(\".*?\"),\s*prgFlags\s*=\s*(\[.*?\])\s*\}")
+    (nm,) = target_field(target, r"tgtNm\s*=\s*Nm\s*\{\s*nmProgram\s*=\s*Program\s*\{\s*prgPath\s*=\s*(\".*?\")")
+    # The OS is the last part of the platform's triple (arch-vendor-os).
+    platform = setting(read_config(system_config), "host-platform-full" if int(stage) == 0 else "target-platform-full", system_config)
+    flags = ast.literal_eval(cc_flags) + ["-I" + rts, "-I" + os.path.join(rts, "include"), "-I" + generated_include, "-fcommon"]
+    with tempfile.TemporaryDirectory() as tmp:
+        out = os.path.join(tmp, "DerivedConstants.h")
+        command = [derive_constants, "--gen-header", "-o", out, "--tmpdir", tmp, "--gcc-program", ast.literal_eval(cc)]
+        command += [arg for flag in flags for arg in ["--gcc-flag", flag]]
+        command += ["--nm-program", ast.literal_eval(nm), "--target-os", platform.split("-")[-1]]
+        result = subprocess.run(command, capture_output=True, text=True)
+        if result.returncode != 0:
+            fail(f"{' '.join(command)} failed:\n{result.stderr}")
+        with open(out) as f:
+            return f.read()
+
+
 GENERATORS = {
     "version": version,
     "platform-host": platform_host,
     "settings-config": settings_config,
     "primops-txt": primops_txt,
+    "derived-constants": derived_constants,
 }
 
 

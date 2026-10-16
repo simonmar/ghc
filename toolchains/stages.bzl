@@ -32,8 +32,9 @@ def stage_tool(tool, stage0):
     arms["DEFAULT"] = stage0
     return select(arms)
 
-def stage_number():
+def stage_number(as_string = False):
     """Selects the number of the configuration's stage: 0 for stage0."""
-    arms = {"toolchains//:" + stage: n for n, stage in enumerate(STAGES) if n > 0}
-    arms["DEFAULT"] = 0
+    number = str if as_string else (lambda n: n)
+    arms = {"toolchains//:" + stage: number(n) for n, stage in enumerate(STAGES) if n > 0}
+    arms["DEFAULT"] = number(0)
     return select(arms)

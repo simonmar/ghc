@@ -382,8 +382,8 @@ fi
 
 dnl Calling AC_CHECK_TYPE(T) makes AC_CHECK_SIZEOF(T) abort on failure
 dnl instead of considering sizeof(T) as 0.
-AC_CHECK_TYPE([struct MD5Context], [], [AC_MSG_ERROR([internal error])], [#include "include/md5.h"])
-AC_CHECK_SIZEOF([struct MD5Context], [], [#include "include/md5.h"])
+AC_CHECK_TYPE([struct MD5Context], [], [AC_MSG_ERROR([internal error])], [#include "$srcdir/include/md5.h"])
+AC_CHECK_SIZEOF([struct MD5Context], [], [#include "$srcdir/include/md5.h"])
 
 AC_SUBST(EXTRA_LIBS)
 AC_CONFIG_FILES([ghc-internal.buildinfo include/HsIntegerGmp.h])

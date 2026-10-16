@@ -1,0 +1,2 @@
+# The version of the GHC that the build makes, from ./configure.
+GHC_VERSION = "@ProjectVersion@"

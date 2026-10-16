@@ -14,6 +14,9 @@ build-type: Configure
 extra-source-files:
     configure
     configure.ac
+    -- What generates sources of the rts, from the rts's headers.
+    gen_event_types.py
+    **/*.h
 
 extra-tmp-files:
     autom4te.cache
@@ -268,7 +271,10 @@ library
       if !flag(smp)
          cpp-options: -DNOSMP
 
-      include-dirs: include
+      -- The RTS's private headers are in its root, and must be compiled with
+      -- optimisation: INLINE_HEADER functions have no out-of-line versions.
+      include-dirs: include .
+      cc-options: -DCOMPILING_RTS -DFS_NAMESPACE=rts -O2 -fomit-frame-pointer
       includes: Rts.h
       autogen-includes: ghcautoconf.h ghcplatform.h
       install-includes: Cmm.h HsFFI.h MachDeps.h Jumps.h Rts.h RtsAPI.h RtsSymbols.h Stg.h
