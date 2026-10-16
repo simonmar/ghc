@@ -111,10 +111,21 @@ def _with_libdir_impl(ctx: AnalysisContext) -> list[Provider]:
     ]
 
 # A tool of a GHC that the build makes (ghc, ghc-pkg), run with the GHC's
-# libdir, which `flag` (a format string) gives it, as the toolchain does: the
-# tool is the one the build uses (for the execution platform), the libdir the
-# one for what it builds.
+# libdir, which `flag` (a format string) gives it: as the toolchain runs it,
+# for exec_with_libdir (the tool is the one the build uses, for the execution
+# platform, and the libdir the one for what it builds), or as a product of the
+# build, for with_libdir (the tool built as the libdir's libraries are, for
+# the target platform).
 with_libdir = rule(
+    impl = _with_libdir_impl,
+    attrs = {
+        "flag": attrs.string(),
+        "libdir": attrs.dep(),
+        "tool": attrs.dep(providers = [RunInfo]),
+    },
+)
+
+exec_with_libdir = rule(
     impl = _with_libdir_impl,
     attrs = {
         "flag": attrs.string(),
