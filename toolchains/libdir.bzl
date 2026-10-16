@@ -6,6 +6,7 @@
 
 load("@prelude//haskell:library_info.bzl", "HaskellLibraryInfoTSet")
 load("@prelude//haskell:link_info.bzl", "HaskellLinkInfo")
+load("@prelude//haskell:toolchain.bzl", "HaskellPlatformInfo", "HaskellToolchainInfo")
 load("@prelude//haskell:util.bzl", "haskell_library_unit_id")
 load("@prelude//linking:link_info.bzl", "LinkStyle")
 load(":rts_ways.bzl", "rts_way_combinations", "rts_way_name")
@@ -82,14 +83,15 @@ ghc_libdir = rule(
         # dependencies, as they are built by the GHC of this libdir.
         "base": attrs.label(),
         "ghc_library": attrs.label(),
-        "ghc_pkg": attrs.dep(providers = [RunInfo]),
+        "ghc_pkg": attrs.exec_dep(providers = [RunInfo]),
         "interpreter": attrs.bool(default = False),
         # The libraries of the global package database: the GHC's
         # installed ones, built by the GHC before it (the stage1 libraries,
         # for the stage2 GHC).
         "packages": attrs.list(attrs.dep(), default = []),
         "target": attrs.source(),
-        "unlit": attrs.dep(providers = [RunInfo]),
+        # The programs that GHC runs, which run where it does.
+        "unlit": attrs.exec_dep(providers = [RunInfo]),
         "_package_db": attrs.source(default = "toolchains//:package_db.py"),
     },
 )
@@ -109,14 +111,45 @@ def _with_libdir_impl(ctx: AnalysisContext) -> list[Provider]:
     ]
 
 # A tool of a GHC that the build makes (ghc, ghc-pkg), run with the GHC's
-# libdir, which `flag` (a format string) gives it. Like the tool, the libdir
-# and the tools in it are built in the configuration of this target: that of
-# the stage that builds the GHC (see stage_alias()).
+# libdir, which `flag` (a format string) gives it, as the toolchain does: the
+# tool is the one the build uses (for the execution platform), the libdir the
+# one for what it builds.
 with_libdir = rule(
     impl = _with_libdir_impl,
     attrs = {
         "flag": attrs.string(),
         "libdir": attrs.dep(),
-        "tool": attrs.dep(providers = [RunInfo]),
+        "tool": attrs.exec_dep(providers = [RunInfo]),
     },
+)
+
+def _ghc_toolchain_impl(ctx: AnalysisContext) -> list[Provider]:
+    toolchain = ctx.attrs.toolchain
+    if not ctx.attrs.libdir:
+        return toolchain.providers
+    info = toolchain[HaskellToolchainInfo]
+    libdir = ctx.attrs.libdir[DefaultInfo]
+    files = libdir.other_outputs
+    fields = {field: getattr(info, field) for field in dir(info)}
+    fields["compiler"] = cmd_args(info.compiler, cmd_args(libdir.default_outputs[0], format = "-B{}"), hidden = files)
+    fields["linker"] = cmd_args(info.linker, cmd_args(libdir.default_outputs[0], format = "-B{}"), hidden = files)
+    fields["packager"] = cmd_args(info.packager, cmd_args(libdir.default_outputs[0], format = "--global-package-db={}/package.conf.d"), hidden = files)
+    return [
+        DefaultInfo(),
+        HaskellToolchainInfo(**fields),
+        toolchain[HaskellPlatformInfo],
+    ]
+
+# A Haskell toolchain whose GHC (and ghc-pkg) is run with a libdir (its
+# topdir, -B): a GHC that the build makes. The libdir is for the targets the
+# GHC builds (its package database has the libraries it links them with), so
+# it is configured as they are, unlike the GHC itself, which runs on the
+# execution platform.
+ghc_toolchain = rule(
+    impl = _ghc_toolchain_impl,
+    attrs = {
+        "libdir": attrs.option(attrs.dep(), default = None),
+        "toolchain": attrs.toolchain_dep(providers = [HaskellToolchainInfo]),
+    },
+    is_toolchain_rule = True,
 )
