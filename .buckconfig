@@ -24,3 +24,17 @@
 
 [build]
   execution_platforms = root//buck2/platforms:exec
+
+[cfg]
+  # What configurations are named by (the names of these constraints'
+  # values), as in cfg:opt-clang-stage1: see buck2/prelude/cfg/modifier/name.bzl.
+  named_constraint_settings = root//buck2/constraints:build_mode, \
+    prelude//cfg/exec_platform/marker:is_exec_platform, \
+    root//buck2/constraints:profiling, \
+    root//buck2/constraints:sanitizer, \
+    root//buck2/constraints:compiler, \
+    toolchains//:ghc_stage, \
+    toolchains//:rts_variants, \
+    toolchains//:rts_threaded, \
+    toolchains//:rts_debug, \
+    toolchains//:rts_dynamic
