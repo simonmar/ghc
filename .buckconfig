@@ -39,3 +39,22 @@
     toolchains//:rts_threaded, \
     toolchains//:rts_debug, \
     toolchains//:rts_dynamic
+
+[ghc]
+  # The build mode of each stage's targets: dev or opt, optionally static or
+  # shared (else dev links shared, opt static), and optionally prof (not with
+  # shared). A stage's mode is that of everything built at that stage: the
+  # stage0 libraries and the stage1 compiler for stage0, the stage1 libraries
+  # and the stage2 compiler for stage1. The defaults (toolchains/stages.bzl)
+  # are as below; set them here, in .buckconfig.local, or for one build on the
+  # command line, e.g. -c ghc.stage1=opt,static.
+  #
+  #   stage0 = opt, static
+  #   stage1 = dev, shared
+  #   stage2 = dev, shared
+  #
+  # -m (dev, opt, prof, static, shared) applies only to what is built for the
+  # command line's own configuration: //ghc:ghc, say, rather than
+  # //:stage1-ghc, the stage1 compiler that the build uses. It also overrides
+  # the mode of a package of stage1 alone (//libraries/base:base, say), which
+  # is otherwise stage1's.
