@@ -83,6 +83,7 @@ _STAGE_TOOLS = {
         name = stage + "-" + tool,
         actual = actual,
         stage = STAGES[i],
+        visibility = ["PUBLIC"],
     )
     for i, stage in enumerate(STAGES[1:])
     for tool, actual in _STAGE_TOOLS.items()

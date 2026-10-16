@@ -95,8 +95,12 @@ ghc_libdir = rule(
 )
 
 def _with_libdir_impl(ctx: AnalysisContext) -> list[Provider]:
+    libdir = ctx.attrs.libdir[DefaultInfo]
     return [
-        DefaultInfo(),
+        DefaultInfo(
+            default_outputs = ctx.attrs.tool[DefaultInfo].default_outputs,
+            other_outputs = libdir.default_outputs + libdir.other_outputs,
+        ),
         RunInfo(args = cmd_args(
             ctx.attrs.tool[RunInfo],
             cmd_args(ctx.attrs.libdir[DefaultInfo].default_outputs[0], format = ctx.attrs.flag),

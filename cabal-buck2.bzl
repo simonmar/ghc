@@ -144,8 +144,14 @@ PACKAGE_SET_MODIFIERS = {
     "stage1": ["toolchains//:stage1"] + stage_modes("stage1"),
 }
 
-# The transitions to each later stage, for the <component>-<stage> aliases
-# of its packages' components (//libraries/unix:unix-stage1, say).
+# The project's own package set (cabal.project's packages) is stage0's: its
+# targets of the packages that are in a later stage too are <component>.stage0.
+PROJECT_PACKAGE_SET = "stage0"
+
+# The transitions to each stage, for the <component>-<stage> aliases of its
+# packages' components (//libraries/unix:unix-stage1, say), which are built
+# with the stage's build mode.
 PACKAGE_SET_TRANSITIONS = {
+    "stage0": "toolchains//:to-stage0",
     "stage1": "toolchains//:to-stage1",
 }
