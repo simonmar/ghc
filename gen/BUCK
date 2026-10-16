@@ -120,7 +120,7 @@ genrule(
           "python3 $(location :generate.py) derived-constants $(location :target) $(location //hadrian/cfg:system.config) " +
           stage_number(as_string = True) +
           " $(exe //utils/deriveConstants:deriveConstants) " + _RTS +
-          " $(location //rts/cabal-buck2/autogen:rts-generated-headers-1) $OUT/DerivedConstants.h",
+          " $(location //rts/cabal-buck2/autogen-stage1:rts-generated-include) $OUT/DerivedConstants.h",
 )
 
 prebuilt_cxx_library(

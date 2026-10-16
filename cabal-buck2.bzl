@@ -135,7 +135,15 @@ OVERRIDES = {
 }
 
 # The configuration of the targets of each later stage (`cabal buck2
-# --later-stage`): they are built at that stage.
+# --later-stage`): they are built at that stage. A package only in the stage
+# is configured for it (with a PACKAGE file); one also in another is built
+# for whichever stage what depends on it is.
 PACKAGE_SET_MODIFIERS = {
     "stage1": ["toolchains//:stage1"],
+}
+
+# The transitions to each later stage, for the <component>-<stage> aliases
+# of its packages' components (//libraries/unix:unix-stage1, say).
+PACKAGE_SET_TRANSITIONS = {
+    "stage1": "toolchains//:to-stage1",
 }
