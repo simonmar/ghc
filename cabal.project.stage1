@@ -49,6 +49,16 @@ packages: rts
           libraries/xhtml
           utils/haddock/haddock-library
           utils/ghc-toolchain
+          -- The stage2 compiler, and the other programs of stage1
+          compiler
+          ghc
+          utils/ghc-pkg
+          utils/ghc-toolchain/exe
+          utils/hp2ps
+          utils/hpc
+          utils/hsc2hs
+          utils/runghc
+          utils/unlit
 
 package rts
   flags: +librt -use-system-libffi -libffi-adjustors -libbfd -need-atomic -libdw -libnuma -libzstd -static-libzstd -leading-underscore -unregisterised +tables-next-to-code
@@ -58,3 +68,13 @@ package ghc-internal
 
 package text
   flags: -simdutf
+
+-- As Hadrian builds them at stage1 (not cross-compiling).
+package ghc
+  flags: +internal-interpreter
+
+package ghc-bin
+  flags: +interpreter +internal-interpreter +threaded
+
+package ghci
+  flags: +internal-interpreter
