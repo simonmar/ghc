@@ -78,6 +78,17 @@ def stage_alias(name, actual, stage, **kwargs):
         **kwargs
     )
 
+def _tool_alias_impl(ctx: AnalysisContext) -> list[Provider]:
+    return ctx.attrs.actual.providers
+
+# `actual` as the build uses it as a tool, configured for the execution
+# platform: asking for it builds what the build would use, not another one
+# for the target platform.
+tool_alias = rule(
+    impl = _tool_alias_impl,
+    attrs = {"actual": attrs.exec_dep()},
+)
+
 def stage_tool(tool, stage0):
     """Selects `tool` of the configuration's stage: `stage0` at stage0, else
     toolchains//:<stage>-<tool>."""
