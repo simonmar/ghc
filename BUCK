@@ -1,4 +1,5 @@
-load("@toolchains//:stages.bzl", "STAGES", "tool_alias")
+load("@toolchains//:libdir.bzl", "with_libdir")
+load("@toolchains//:stages.bzl", "STAGES")
 
 # Useful aliases for building ghc & ghc-pkg in stage1/stage2:
 #
@@ -11,11 +12,16 @@ load("@toolchains//:stages.bzl", "STAGES", "tool_alias")
 # (e.g. //ghc:ghc) will build GHC again, because the configuration
 # defaults to the target platform, not the exec platform.
 [
-    tool_alias(
+    with_libdir(
         name = stage + "-" + tool,
-        actual = "toolchains//:" + stage + "-" + tool,
+        flag = flag,
+        libdir = "toolchains//:" + stage + "-libdir",
+        tool = "toolchains//:" + stage + "-" + tool,
         visibility = ["PUBLIC"],
     )
     for stage in STAGES[1:]
-    for tool in ["ghc", "ghc-pkg"]
+    for tool, flag in [
+        ("ghc", "-B{}"),
+        ("ghc-pkg", "--global-package-db={}/package.conf.d"),
+    ]
 ]
