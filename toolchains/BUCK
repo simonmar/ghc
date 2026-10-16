@@ -1,10 +1,10 @@
 load("@prelude//toolchains:demo.bzl", "system_demo_toolchains")
-load("@prelude//transitions:utils.bzl", "transition_utils")
 load("@haskell-toolchains//:defaults.bzl", "CABAL_GHC", "CABAL_GHC_PKG", "default_haskell_toolchain")
+load("@third-party-haskell//:tools.bzl", "GHC_DYNAMIC")
 load("@root//cabal-buck2:packages.bzl", "PACKAGE_SETS", "PACKAGE_SET_LIBRARIES")
 load(":libdir.bzl", "ghc_libdir", "with_libdir")
 load(":rts_ways.bzl", "rts_libraries", "rts_way_settings")
-load(":stages.bzl", "STAGES", "stage_alias", "stage_tool")
+load(":stages.bzl", "STAGES", "stage_alias", "stage_links_shared", "stage_tool", "stage_transition")
 
 system_demo_toolchains()
 
@@ -27,19 +27,14 @@ constraint_setting(
     for stage in STAGES
 ]
 
-transition_utils.modify_constraints_transition(
-    name = "to-stage0",
-    remove = [":stage0"],
-    visibility = ["PUBLIC"],
-)
-
+# The transitions to each stage, which give it its build mode.
 [
-    transition_utils.modify_constraints_transition(
+    stage_transition(
         name = "to-" + stage,
-        add = [":" + stage],
+        stage = stage,
         visibility = ["PUBLIC"],
     )
-    for stage in STAGES[1:]
+    for stage in STAGES
 ]
 
 # The libdir of the GHC of the next stage, built in this one's configuration
@@ -97,6 +92,12 @@ default_haskell_toolchain(
     name = "haskell",
     compiler = stage_tool("ghc", CABAL_GHC),
     packager = stage_tool("ghc-pkg", CABAL_GHC_PKG),
+    # A GHC that the build makes is linked as the build mode of the stage
+    # before says.
+    dynamic_ghc = select(dict(
+        {"toolchains//:" + stage: stage_links_shared(STAGES[n]) for n, stage in enumerate(STAGES[1:])},
+        DEFAULT = GHC_DYNAMIC,
+    )),
 )
 
 # The units of the RTS's ways (see rts_ways.bzl), besides profiling, which is

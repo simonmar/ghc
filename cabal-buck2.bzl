@@ -2,6 +2,7 @@
 # packages: package name -> component name -> attributes (see buck2/cabal.bzl).
 
 load("@toolchains//:rts_ways.bzl", "RTS_VARIANTS", "rts_way", "rts_way_name")
+load("@toolchains//:stages.bzl", "stage_modes")
 load("@toolchains//:version.bzl", "GHC_VERSION")
 
 # What the RTS is compiled with that depends on its way (as Hadrian does,
@@ -135,11 +136,12 @@ OVERRIDES = {
 }
 
 # The configuration of the targets of each later stage (`cabal buck2
-# --later-stage`): they are built at that stage. A package only in the stage
-# is configured for it (with a PACKAGE file); one also in another is built
-# for whichever stage what depends on it is.
+# --later-stage`): they are built at that stage (the first modifier), with
+# its build mode. A package only in the stage is configured for it (with a
+# PACKAGE file); one also in another is built for whichever stage what
+# depends on it is.
 PACKAGE_SET_MODIFIERS = {
-    "stage1": ["toolchains//:stage1"],
+    "stage1": ["toolchains//:stage1"] + stage_modes("stage1"),
 }
 
 # The transitions to each later stage, for the <component>-<stage> aliases
