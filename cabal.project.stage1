@@ -1,0 +1,17 @@
+-- The packages of stage1: built by the stage1 compiler (see `cabal buck2
+-- --later-stage`). Only the packages and their flags are taken from here:
+-- nothing is solved.
+--
+-- TODO: the flags are what Hadrian gives these packages on x86_64 Linux;
+-- configure should work them out.
+packages: rts
+          libraries/ghc-internal
+          libraries/ghc-prim
+          libraries/libffi-clib
+          libraries/base
+
+package rts
+  flags: +librt -use-system-libffi -libffi-adjustors -libbfd -need-atomic -libdw -libnuma -libzstd -static-libzstd -leading-underscore -unregisterised +tables-next-to-code
+
+package ghc-internal
+  flags: +bignum-native -bignum-gmp

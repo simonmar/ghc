@@ -1,6 +1,8 @@
 load("@prelude//toolchains:demo.bzl", "system_demo_toolchains")
 load("@prelude//transitions:utils.bzl", "transition_utils")
 load("@haskell-toolchains//:defaults.bzl", "CABAL_GHC", "CABAL_GHC_PKG", "default_haskell_toolchain")
+load(":libdir.bzl", "ghc_libdir", "with_libdir")
+load(":rts_ways.bzl", "rts_libraries", "rts_way_settings")
 load(":stages.bzl", "STAGES", "stage_alias", "stage_tool")
 
 system_demo_toolchains()
@@ -39,10 +41,32 @@ transition_utils.modify_constraints_transition(
     for stage in STAGES[1:]
 ]
 
+ghc_libdir(
+    name = "ghc-libdir",
+    base = "root//libraries/base:base",
+    ghc_library = "root//compiler:ghc",
+    target = "root//hadrian/cfg:default.target",
+    unlit = "root//utils/unlit:unlit",
+)
+
+with_libdir(
+    name = "ghc-with-libdir",
+    flag = "-B{}",
+    libdir = ":ghc-libdir",
+    tool = "root//ghc:ghc",
+)
+
+with_libdir(
+    name = "ghc-pkg-with-libdir",
+    flag = "--global-package-db={}/package.conf.d",
+    libdir = ":ghc-libdir",
+    tool = "root//utils/ghc-pkg:ghc-pkg",
+)
+
 # The tools of stage N (N > 0), built at stage N-1.
 _STAGE_TOOLS = {
-    "ghc": "root//ghc:ghc",
-    "ghc-pkg": "root//utils/ghc-pkg:ghc-pkg",
+    "ghc": ":ghc-with-libdir",
+    "ghc-pkg": ":ghc-pkg-with-libdir",
 }
 
 [
@@ -59,4 +83,59 @@ default_haskell_toolchain(
     name = "haskell",
     compiler = stage_tool("ghc", CABAL_GHC),
     packager = stage_tool("ghc-pkg", CABAL_GHC_PKG),
+)
+
+# The units of the RTS's ways (see rts_ways.bzl), besides profiling, which is
+# root//buck2/constraints:prof.
+constraint_setting(
+    name = "rts_threaded",
+    visibility = ["PUBLIC"],
+)
+
+constraint_value(
+    name = "threaded",
+    constraint_setting = ":rts_threaded",
+    visibility = ["PUBLIC"],
+)
+
+constraint_setting(
+    name = "rts_debug",
+    visibility = ["PUBLIC"],
+)
+
+constraint_value(
+    name = "debug",
+    constraint_setting = ":rts_debug",
+    visibility = ["PUBLIC"],
+)
+
+constraint_setting(
+    name = "rts_dynamic",
+    visibility = ["PUBLIC"],
+)
+
+constraint_value(
+    name = "dynamic",
+    constraint_setting = ":rts_dynamic",
+    visibility = ["PUBLIC"],
+)
+
+# Set in the configurations of the RTS's variants, which GHC doesn't link
+# itself (unlike the RTS: see rts_libraries()).
+constraint_setting(
+    name = "rts_variants",
+    visibility = ["PUBLIC"],
+)
+
+constraint_value(
+    name = "rts_variant",
+    constraint_setting = ":rts_variants",
+    visibility = ["PUBLIC"],
+)
+
+rts_way_settings()
+
+rts_libraries(
+    name = "rts-libraries",
+    rts = "root//rts:rts",
 )

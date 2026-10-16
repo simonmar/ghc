@@ -80,6 +80,14 @@ prebuilt_cxx_library(
     visibility = ["PUBLIC"],
 )
 
+# GHC.Internal.PrimopWrappers of ghc-internal, which Hadrian generates.
+genrule(
+    name = "primop-wrappers",
+    out = "GHC/Internal/PrimopWrappers.hs",
+    cmd = "$(exe //utils/genprimopcode:genprimopcode) --make-haskell-wrappers < $(location :primops.txt) > $OUT",
+    visibility = ["PUBLIC"],
+)
+
 genrule(
     name = "platform-constants",
     out = "GHC/Platform/Constants.hs",
@@ -95,3 +103,39 @@ settings_config(
     system_config = "//hadrian/cfg:system.config",
     visibility = ["PUBLIC"],
 )
+
+# What the rts's build system generates: headers (see generateRules and
+# genEventTypes in hadrian/src/Rules/Generate.hs), and the AutoApply Cmm code
+# from DerivedConstants.h.
+
+_RTS = "$(location //rts:rts-extra-source-files)"
+
+genrule(
+    name = "rts-headers-dir",
+    out = "rts-headers",
+    visibility = ["PUBLIC"],
+    cmd = "mkdir -p $OUT/rts && " +
+          "python3 " + _RTS + "/gen_event_types.py --event-types-array $OUT/rts/EventTypes.h && " +
+          "python3 " + _RTS + "/gen_event_types.py --event-types-defines $OUT/rts/EventLogConstants.h && " +
+          "python3 $(location :generate.py) derived-constants $(location :target) $(location //hadrian/cfg:system.config) " +
+          stage_number(as_string = True) +
+          " $(exe //utils/deriveConstants:deriveConstants) " + _RTS +
+          " $(location //rts/cabal-buck2/autogen:rts-generated-headers-1) $OUT/DerivedConstants.h",
+)
+
+prebuilt_cxx_library(
+    name = "rts-headers",
+    header_only = True,
+    header_dirs = [":rts-headers-dir"],
+    visibility = ["PUBLIC"],
+)
+
+[
+    genrule(
+        name = "AutoApply" + suffix + ".cmm",
+        out = "AutoApply" + suffix + ".cmm",
+        cmd = "$(exe //utils/genapply:genapply) $(location :rts-headers-dir)/DerivedConstants.h " + flag + " > $OUT",
+        visibility = ["PUBLIC"],
+    )
+    for suffix, flag in [("", ""), ("_V16", "-V16"), ("_V32", "-V32"), ("_V64", "-V64")]
+]

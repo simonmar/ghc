@@ -1013,6 +1013,12 @@ AC_CONFIG_FILES(
   utils/runghc/runghc.cabal
 ])
 
+dnl The version of GHC, for C code (__GLASGOW_HASKELL__ etc.).
+AC_CONFIG_FILES([rts/include/ghcversion.h])
+
+dnl The version of GHC, for the buck2 build (the names of its libraries).
+AC_CONFIG_FILES([toolchains/version.bzl])
+
 dnl The compiler's bounds on the version of LLVM. (Hadrian writes each version
 dnl with "," for "."; the versions are whole numbers, so there are none.)
 AC_CONFIG_FILES([compiler/GHC/CmmToLlvm/Version/Bounds.hs])

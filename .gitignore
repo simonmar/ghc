@@ -272,7 +272,11 @@ cabal-buck2/
 /driver/**/BUCK
 /ghc/BUCK
 /libraries/**/BUCK
+/rts/BUCK
 /utils/**/BUCK
+/libraries/**/PACKAGE
+/rts/PACKAGE
+/toolchains/version.bzl
 
 # -----------------------------------------------------------------------------
 # CI
