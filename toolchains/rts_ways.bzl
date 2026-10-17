@@ -32,15 +32,42 @@ def _setting_name(units):
     return "rts-way-" + "_".join(units)
 
 def rts_way_settings():
-    """A config_setting for each way but the vanilla one, which is what a
-    select() of rts_way() matches the most specific of; and a transition to
-    each variant."""
+    """
+    A config_setting (alias for a list of constraints) for each way, e.g.
+
+    config_setting(
+        name = "rts-way-thr_debug",
+        constraint_values = [
+            "toolchains//:threaded",
+            "toolchains//:debug",
+        ]
+    )
+    """
     for units in rts_way_combinations()[1:]:
         native.config_setting(
             name = _setting_name(units),
             constraint_values = [RTS_WAY_UNITS[u] for u in units],
             visibility = ["PUBLIC"],
         )
+
+def _transition_name(units):
+    return "to-rts-" + rts_way_name(units)
+
+_MODES = {
+    "dev": "root//buck2/constraints:dev",
+    "opt": "root//buck2/constraints:opt",
+}
+
+def rts_way_transitions():
+    """
+    A configuration transition for each RTS variant, e.g.
+
+       toolchains//:to-rts-v
+       toolchains//:to-rts-thr
+       toolchains//:to-rts-debug
+       toolchains//:to-rts-dyn
+       ...
+    """
     for units in rts_way_combinations(_VARIANT_UNITS):
         transition_utils.modify_constraints_transition(
             name = _transition_name(units),
@@ -50,8 +77,15 @@ def rts_way_settings():
         )
 
 def rts_way(f):
-    """Selects f(units) for the configuration's way: its list of units, empty
-    for the vanilla way."""
+    """
+    Build a select() applying f to each RTS way, e.g.
+
+    select(
+       "toolchains//:rts-way-dyn": f(["dyn"]),
+       "toolchains//:rts-way-thr_dyn": f(["thr","dyn"]),
+       ...
+    )
+    """
     arms = {"toolchains//:" + _setting_name(units): f(units) for units in rts_way_combinations()[1:]}
     arms["DEFAULT"] = f([])
     return select(arms)
@@ -59,9 +93,6 @@ def rts_way(f):
 def rts_way_name(units):
     """The name of a way, as GHC knows it (`RTS way` in +RTS --info)."""
     return "_".join(units) if units else "v"
-
-def _transition_name(units):
-    return "to-rts-" + rts_way_name(units)
 
 # The variants of the RTS of a configuration: way name (without profiling,
 # which the configuration has or hasn't) -> the transition to it.

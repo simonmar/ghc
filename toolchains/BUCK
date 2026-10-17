@@ -3,7 +3,7 @@ load("@haskell-toolchains//:defaults.bzl", "CABAL_GHC", "CABAL_GHC_PKG", "defaul
 load("@third-party-haskell//:tools.bzl", "GHC_DYNAMIC")
 load("@root//cabal-buck2:packages.bzl", "PACKAGE_SETS", "PACKAGE_SET_LIBRARIES")
 load(":libdir.bzl", "ghc_libdir", "ghc_toolchain")
-load(":rts_ways.bzl", "rts_libraries", "rts_way_settings")
+load(":rts_ways.bzl", "rts_libraries", "rts_way_settings", "rts_way_transitions")
 load(":stages.bzl", "STAGES", "stage_alias", "stage_links_shared", "stage_tool", "stage_transition")
 
 system_demo_toolchains()
@@ -149,6 +149,7 @@ constraint_value(
 )
 
 rts_way_settings()
+rts_way_transitions()
 
 rts_libraries(
     name = "rts-libraries",
