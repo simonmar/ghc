@@ -1,9 +1,10 @@
 load("@prelude//toolchains:demo.bzl", "system_demo_toolchains")
 load("@haskell-toolchains//:defaults.bzl", "CABAL_GHC", "CABAL_GHC_PKG", "default_haskell_toolchain")
 load("@third-party-haskell//:tools.bzl", "GHC_DYNAMIC")
-load("@root//cabal-buck2:packages.bzl", "PACKAGE_SETS", "PACKAGE_SET_LIBRARIES")
+load("@root//cabal-buck2:packages.bzl", "PACKAGE_SETS", "PACKAGE_SET_LIBRARIES", "PACKAGE_TARGETS")
 load(":libdir.bzl", "ghc_libdir", "ghc_toolchain")
-load(":rts_ways.bzl", "rts_libraries", "rts_way_settings", "rts_way_transitions")
+load(":rts.bzl", "rts_package")
+load(":rts_ways.bzl", "rts_way_settings", "rts_way_transitions")
 load(":stages.bzl", "STAGES", "stage_alias", "stage_links_shared", "stage_tool", "stage_transition")
 
 system_demo_toolchains()
@@ -42,7 +43,7 @@ constraint_setting(
 # libraries installed (as Hadrian's does), and the internal interpreter.
 # The programs in it (and ghc-pkg) are for the execution platform.
 _STAGE1_LIBRARIES = [
-    "root//" + PACKAGE_SETS["stage1"][name] + ":" + name
+    PACKAGE_TARGETS.get(name, "root//" + PACKAGE_SETS["stage1"][name] + ":" + name)
     for name in PACKAGE_SET_LIBRARIES["stage1"]
 ]
 
@@ -135,23 +136,11 @@ constraint_value(
     visibility = ["PUBLIC"],
 )
 
-# Set in the configurations of the RTS's variants, which GHC doesn't link
-# itself (unlike the RTS: see rts_libraries()).
-constraint_setting(
-    name = "rts_variants",
-    visibility = ["PUBLIC"],
-)
-
-constraint_value(
-    name = "rts_variant",
-    constraint_setting = ":rts_variants",
-    visibility = ["PUBLIC"],
-)
-
 rts_way_settings()
 rts_way_transitions()
 
-rts_libraries(
-    name = "rts-libraries",
-    rts = "root//rts:rts",
+rts_package(
+    name = "rts",
+    ghc_pkg = "root//utils/ghc-pkg:ghc-pkg",
+    library = "root//rts:rts",
 )

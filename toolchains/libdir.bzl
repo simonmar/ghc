@@ -55,6 +55,7 @@ def _ghc_libdir_impl(ctx: AnalysisContext) -> list[Provider]:
             ctx.attrs.target,
             ctx.attrs.unlit[RunInfo],
             ctx.attrs._package_db,
+            "merge",
             ctx.attrs.ghc_pkg[RunInfo],
             cmd_args(libdir.as_output(), format = "{}/package.conf.d"),
             {lib.db: None for lib in libs}.keys(),

@@ -1,9 +1,8 @@
 # The project's overrides of the targets that `cabal buck2` generates for its
 # packages: package name -> component name -> attributes (see buck2/cabal.bzl).
 
-load("@toolchains//:rts_ways.bzl", "RTS_VARIANTS", "rts_way", "rts_way_name")
+load("@toolchains//:rts_ways.bzl", "RTS_VARIANTS", "rts_library_file", "rts_way", "rts_way_name")
 load("@toolchains//:stages.bzl", "stage_modes")
-load("@toolchains//:version.bzl", "GHC_VERSION")
 
 # What the RTS is compiled with that depends on its way (as Hadrian does,
 # see rtsPackageArgs and wayCcArgs in hadrian/src/Settings).
@@ -31,14 +30,6 @@ def _rts_cmm_flags(units):
     # GHC preprocesses Cmm with the C compiler's preprocessor.
     defines = _rts_way_defines(units)
     return defines + ["-optc" + d for d in defines] + (["-ticky"] if units == ["debug"] else [])
-
-# The library of the RTS, as GHC names it for a way: see unitHsLibs in
-# compiler/GHC/Unit/Info.hs. (The prelude adds _p to a profiled archive.)
-_RTS_LIBRARY = "HSrts-1.0.3"
-
-def _rts_library_name(units, dynamic = False):
-    tag = "_".join([u for u in units if u not in ["p", "dyn"]])
-    return _RTS_LIBRARY + ("_" + tag if tag else "") + ("-ghc" + GHC_VERSION if dynamic else "")
 
 _X86 = ["prelude//cpu:x86_32", "prelude//cpu:x86_64"]
 
@@ -95,14 +86,12 @@ OVERRIDES = {
                 for f in ["AutoApply.cmm", "AutoApply_V16.cmm", "AutoApply_V32.cmm", "AutoApply_V64.cmm"]
             },
             "include_dirs": ["//gen:rts-headers-dir"],
-            # GHC links the RTS, choosing the variant for the way it links (with
-            # -threaded, say) from those that toolchains//:rts-libraries has,
-            # each the rts built in another configuration (`variants`).
+            # The rts built for each way (`variants`), which the rts's package,
+            # toolchains//:rts (PACKAGE_TARGETS), gathers, for GHC to choose the
+            # variant for the way it links (with -threaded, say). A dynamic
+            # variant has the soname that GHC gives it.
             "variants": RTS_VARIANTS,
-            "hs_libraries": select({"toolchains//:rts_variant": [], "DEFAULT": [_RTS_LIBRARY]}),
-            "library_dir": select({"toolchains//:rts_variant": None, "DEFAULT": "toolchains//:rts-libraries"}),
-            "static_library_name": rts_way(_rts_library_name),
-            "shared_library_name": rts_way(lambda units: _rts_library_name(units, dynamic = True)),
+            "soname": rts_way(rts_library_file),
             "cxx": {
                 "compiler_flags": rts_way(_rts_c_flags),
                 "exported_deps": ["//gen:rts-headers"],
@@ -133,6 +122,12 @@ OVERRIDES = {
             ]),
         },
     },
+}
+
+# The targets of packages' libraries that aren't the generated ones: the rts's
+# package (see toolchains/rts.bzl).
+PACKAGE_TARGETS = {
+    "rts": "toolchains//:rts",
 }
 
 # The configuration of the targets of each later stage (`cabal buck2
