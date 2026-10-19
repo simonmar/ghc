@@ -8,14 +8,25 @@ load("@toolchains//:stages.bzl", "STAGES")
 #   buck2 build //:stage1-ghc-pkg
 #   buck2 build //:stage2-ghc-pkg
 #
-# The stage1 compiler is the one that the build uses to build the stage1
-# libraries and the stage2 compiler (for the execution platform). The stage2
-# compiler is the product of the build: built at stage1, for the target
-# platform, as the stage1 libraries in its libdir are (as Hadrian's is).
+# Platforms:
+#                 Runs on                Targets
+#    ---------------------------------------------------
+#    stage1-ghc   execution platform     target platform
+#    stage2-ghc   target platform        target platform
 #
-# Note that building executables using the raw targets
-# (e.g. //ghc:ghc) will build GHC again, because the configuration
-# defaults to the target platform, not the exec platform.
+# stage1-ghc runs on the execution platform and is used to build the
+# stage1 libraries and the stage2 compiler, which is built for the
+# target platform. In a cross-compilation setting, stage1 is the
+# cross-compiler.
+#
+# Note that even when the target and execution platform are the same,
+# Buck2 treats them as different configurations, so if you ask to
+# build the stage1 GHC for the target platform it will not be shared
+# with the exec platform build. Unfortunately, the target platform is
+# the default so if you ask to build e.g. `//ghc:ghc` it will build
+# stage1 for the target platform. That's why these aliases exist:
+# `buck2 build //:stage1-ghc` builds the exec-platform artifact.
+
 [
     (exec_with_libdir if stage == "stage1" else with_libdir)(
         name = stage + "-" + tool,
