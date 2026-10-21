@@ -275,6 +275,10 @@ library
       -- optimisation: INLINE_HEADER functions have no out-of-line versions.
       include-dirs: include .
       cc-options: -DCOMPILING_RTS -DFS_NAMESPACE=rts -O2 -fomit-frame-pointer
+                  -Wall -Wextra -Wstrict-prototypes -Wmissing-prototypes
+                  -Wmissing-declarations -Wpointer-arith -Wmissing-noreturn
+                  -Wnested-externs -Wredundant-decls -Wundef
+                  -fno-strict-aliasing
       includes: Rts.h
       autogen-includes: ghcautoconf.h ghcplatform.h
       install-includes: Cmm.h HsFFI.h MachDeps.h Jumps.h Rts.h RtsAPI.h RtsSymbols.h Stg.h
