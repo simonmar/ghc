@@ -58,6 +58,8 @@ packages: rts
           utils/hsc2hs
           utils/runghc
           utils/unlit
+          -- The testsuite's programs that use the stage2 compiler's ghc library
+          utils/check-ppr
 
 package rts
   flags: @RtsCabalFlags@
