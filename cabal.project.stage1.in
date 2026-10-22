@@ -62,8 +62,8 @@ packages: rts
 package rts
   flags: @RtsCabalFlags@
 
--- The native bignum backend: gmp (Hadrian's default) needs ghc-internal's
--- configure script to be run --with-gmp.
+-- The native bignum backend. For the system's GMP, set these flags in
+-- cabal.project.stage1.local (`flags: -bignum-native +bignum-gmp`).
 package ghc-internal
   flags: +bignum-native -bignum-gmp @GhcInternalCabalFlags@
 
