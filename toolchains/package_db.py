@@ -1,21 +1,24 @@
 #!/usr/bin/env python3
-"""Make a package database of the packages of others.
+"""Make a package database of the given packages.
 
-    package_db.py merge GHC_PKG OUT DB...
+    package_db.py GHC_PKG OUT MANIFEST
 
-Puts the package of each .conf file in each DB into OUT (a new package
-database), with its paths relative to the ${pkgroot} of OUT (its directory)
-rather than of the DB it comes from.
+MANIFEST is a JSON list of packages, each with "db", the package database of
+the package's own .conf file, and optionally:
 
-    package_db.py linked-by-ghc GHC_PKG OUT DB LIBDIR HS_LIBRARY
+  - "hs_library": the package's library is one that GHC installs, instead of
+    its own: GHC names its files by way (lib<name>.a, lib<name>_p.a,
+    lib<name>-ghc<version>.so), in "library_dirs" and
+    "dynamic_library_dirs";
+  - "import_dirs": where its interface files are, instead of its own;
+  - "ld_options": what what links it is linked with.
 
-Puts the package in DB into OUT likewise, as one whose library GHC links
-itself: its hs-libraries are HS_LIBRARY, in LIBDIR (for each way, named as
-GHC names them), instead of its own library.
-
-Either way, GHC_PKG builds OUT's cache.
+Each package goes into OUT (a new package database), with its paths relative
+to the ${pkgroot} of OUT (its directory) rather than of its own database.
+GHC_PKG builds OUT's cache.
 """
 
+import json
 import os
 import re
 import subprocess
@@ -23,8 +26,8 @@ import sys
 
 PKGROOT = re.compile(r"\$\{pkgroot\}((?:/[^\s,\"]*)?)")
 
-# The fields of a package's library, which a package that GHC links has
-# instead as hs-libraries in its own library-dirs.
+# The fields of a package's library, which a library that GHC installs has
+# instead.
 LIBRARY_FIELDS = ["library-dirs", "dynamic-library-dirs", "extra-libraries", "hs-libraries"]
 
 
@@ -34,15 +37,6 @@ def relocate(text, src_root, dst_root):
         return "${pkgroot}/" + os.path.relpath(target, dst_root)
 
     return PKGROOT.sub(path, text)
-
-
-def confs(db):
-    """The package files of a database, and its ${pkgroot}."""
-    root = os.path.dirname(os.path.normpath(db))
-    for name in sorted(os.listdir(db)):
-        if name.endswith(".conf"):
-            with open(os.path.join(db, name)) as f:
-                yield name, f.read(), root
 
 
 def without_fields(text, fields):
@@ -58,24 +52,37 @@ def without_fields(text, fields):
 
 
 def main():
-    mode, ghc_pkg, out = sys.argv[1], sys.argv[2], sys.argv[3]
+    ghc_pkg, out, manifest = sys.argv[1:4]
     os.makedirs(out)
     dst_root = os.path.dirname(os.path.normpath(out))
-    if mode == "merge":
-        for db in sys.argv[4:]:
-            for name, text, root in confs(db):
-                with open(os.path.join(out, name), "w") as f:
-                    f.write(relocate(text, root, dst_root))
-    elif mode == "linked-by-ghc":
-        db, libdir, hs_library = sys.argv[4:7]
-        libdir = "${pkgroot}/" + os.path.relpath(libdir, dst_root)
-        for name, text, root in confs(db):
-            text = without_fields(relocate(text, root, dst_root), LIBRARY_FIELDS)
-            text += "hs-libraries: {}\nlibrary-dirs: {}\ndynamic-library-dirs: {}\n".format(hs_library, libdir, libdir)
+
+    def paths(dirs):
+        return " ".join("${pkgroot}/" + os.path.relpath(d, dst_root) for d in dirs)
+
+    with open(manifest) as f:
+        packages = json.load(f)
+    for package in packages:
+        db = package["db"]
+        root = os.path.dirname(os.path.normpath(db))
+        for name in sorted(os.listdir(db)):
+            if not name.endswith(".conf"):
+                continue
+            with open(os.path.join(db, name)) as f:
+                text = relocate(f.read(), root, dst_root)
+            fields = {}
+            if "hs_library" in package:
+                fields["hs-libraries"] = package["hs_library"]
+                fields["library-dirs"] = paths(package["library_dirs"])
+                fields["dynamic-library-dirs"] = paths(package["dynamic_library_dirs"])
+                text = without_fields(text, LIBRARY_FIELDS)
+            if "import_dirs" in package:
+                fields["import-dirs"] = paths(package["import_dirs"])
+            if package.get("ld_options"):
+                fields["ld-options"] = " ".join(json.dumps(o) for o in package["ld_options"])
+            text = without_fields(text, list(fields))
+            text += "".join("{}: {}\n".format(k, v) for k, v in fields.items())
             with open(os.path.join(out, name), "w") as f:
                 f.write(text)
-    else:
-        sys.exit("package_db.py: unknown mode " + mode)
     subprocess.run([ghc_pkg, "--global-package-db=" + out, "recache", "--global"], check=True)
 
 

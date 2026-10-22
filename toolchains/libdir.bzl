@@ -8,7 +8,8 @@ load("@prelude//haskell:library_info.bzl", "HaskellLibraryInfoTSet")
 load("@prelude//haskell:link_info.bzl", "HaskellLinkInfo")
 load("@prelude//haskell:toolchain.bzl", "HaskellPlatformInfo", "HaskellToolchainInfo")
 load("@prelude//haskell:util.bzl", "haskell_library_unit_id")
-load("@prelude//linking:link_info.bzl", "LinkStyle")
+load("@prelude//linking:link_info.bzl", "LinkStrategy", "LinkStyle", "MergedLinkInfo", "get_own_link_infos")
+load(":version.bzl", "GHC_VERSION")
 
 def _hs_string(s):
     return '"' + s.replace("\\", "\\\\").replace('"', '\\"') + '"'
@@ -28,7 +29,8 @@ def _ghc_libdir_impl(ctx: AnalysisContext) -> list[Provider]:
         "[" + "\n,".join(["({}, {})".format(_hs_string(k), _hs_string(v)) for k, v in settings]) + "\n]\n",
     )
     libdir = ctx.actions.declare_output("lib", dir = True)
-    libs = _packages(ctx)
+    packages, files = _installed_packages(ctx)
+    manifest = ctx.actions.write_json("packages.json", packages, with_inputs = True)
     script = " && ".join([
         'mkdir -p "$1/targets" "$1/bin"',
         'cp "$2" "$1/settings"',
@@ -37,7 +39,6 @@ def _ghc_libdir_impl(ctx: AnalysisContext) -> list[Provider]:
         "shift 4",
         'python3 "$@"',
     ])
-    files = [f for lib in libs for f in lib.import_dirs.values() + lib.libs + lib.include_dirs]
     ctx.actions.run(
         cmd_args(
             "sh",
@@ -49,10 +50,9 @@ def _ghc_libdir_impl(ctx: AnalysisContext) -> list[Provider]:
             ctx.attrs.target,
             ctx.attrs.unlit[RunInfo],
             ctx.attrs._package_db,
-            "merge",
             ctx.attrs.ghc_pkg[RunInfo],
             cmd_args(libdir.as_output(), format = "{}/package.conf.d"),
-            {lib.db: None for lib in libs}.keys(),
+            manifest,
             hidden = files,
         ),
         category = "ghc_libdir",
@@ -61,15 +61,66 @@ def _ghc_libdir_impl(ctx: AnalysisContext) -> list[Provider]:
     # What the package database refers to, for what runs the GHC.
     return [DefaultInfo(default_output = libdir, other_outputs = files)]
 
-def _packages(ctx: AnalysisContext) -> list:
-    # The libraries of `packages`, and those they depend on: built shared,
-    # when they are, which a GHC that is itself linked shared needs.
-    children = []
+def _libraries(ctx: AnalysisContext, infos) -> dict:
+    # The libraries of `packages`, and those they depend on, by unit id:
+    # infos(dep's HaskellLinkInfo) gives each one's tset of them.
+    children = filter(None, [infos(dep[HaskellLinkInfo]) for dep in ctx.attrs.packages if dep.get(HaskellLinkInfo)])
+    return {lib.id: lib for lib in ctx.actions.tset(HaskellLibraryInfoTSet, children = children).traverse()}
+
+def _installed_packages(ctx: AnalysisContext) -> (list, list):
+    # The packages installed as GHC's are: each with its library in the ways
+    # it was built (static, shared and, if `profiled`, profiled), which GHC
+    # chooses from by the way it links (hs-libraries, named as GHC names
+    # them), and with what it must be linked with. Returns them
+    # (package_db.py's manifest), and the files they refer to.
+    static = _libraries(ctx, lambda info: info.info.get(LinkStyle("static")))
+    shared = _libraries(ctx, lambda info: info.info.get(LinkStyle("shared")))
+    profiled = _libraries(ctx, lambda info: info.prof_info.get(LinkStyle("static"))) if ctx.attrs.profiled else {}
+    linked_with = {}
     for dep in ctx.attrs.packages:
         info = dep.get(HaskellLinkInfo)
-        if info:
-            children.append(info.info[LinkStyle("shared")] if LinkStyle("shared") in info.info else info.info.values()[0])
-    return list(ctx.actions.tset(HaskellLibraryInfoTSet, children = children).traverse())
+        own = get_own_link_infos(dep[MergedLinkInfo], LinkStrategy("static")) if info else None
+        if own:
+            linked_with[info.info.values()[0].value.id] = own.default.pre_flags
+    packages = []
+    files = []
+    for id in static | shared:
+        lib = static.get(id) or shared[id]
+        files += lib.include_dirs
+        if lib.linked_by_ghc:
+            # Installed already (the RTS's package).
+            packages.append({"db": lib.db})
+            files += lib.libs
+            continue
+
+        # GHC's name for the library, as for a Haskell one (HS...), with the
+        # shared library's own name too, its soname. A static build has the
+        # shared one's interface files too (-dynamic-too).
+        libraries = {}
+        import_dirs = [lib.import_dirs[False]]
+        if id in static:
+            archive = static[id].libs[0]
+            name = "HS" + archive.basename.removeprefix("lib").removesuffix(".a")
+            libraries["lib{}.a".format(name)] = archive
+        if id in shared:
+            so = shared[id].libs[0]
+            name = "HS" + so.basename.removeprefix("lib").removesuffix(".so")
+            libraries[so.basename] = so
+            libraries["lib{}-ghc{}.so".format(name, GHC_VERSION)] = so
+        if id in profiled:
+            libraries["lib{}_p.a".format(name)] = profiled[id].libs[0]
+            import_dirs.append(profiled[id].import_dirs[True])
+        library_dir = ctx.actions.symlinked_dir("installed/" + id, libraries)
+        packages.append({
+            "db": lib.db,
+            "dynamic_library_dirs": [library_dir],
+            "hs_library": name,
+            "import_dirs": import_dirs,
+            "ld_options": linked_with.get(id, []),
+            "library_dirs": [library_dir],
+        })
+        files += [library_dir] + import_dirs
+    return packages, files
 
 ghc_libdir = rule(
     impl = _ghc_libdir_impl,
@@ -84,6 +135,8 @@ ghc_libdir = rule(
         # installed ones, built by the GHC before it (the stage1 libraries,
         # for the stage2 GHC).
         "packages": attrs.list(attrs.dep(), default = []),
+        # Whether the packages are installed with their profiled libraries.
+        "profiled": attrs.bool(default = False),
         # The ways of the RTS that what the GHC builds is linked with, which
         # GHC (linking its external interpreter) and Cabal (which ways a
         # compiler supports) read.

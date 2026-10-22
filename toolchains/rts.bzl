@@ -31,7 +31,7 @@ load(
     "traverse_shared_library_info",
 )
 load("@prelude//linking:types.bzl", "Linkage")
-load(":rts_ways.bzl", "RTS_LIBRARY", "RTS_VARIANTS", "RTS_WAY_UNITS", "rts_library_file", "rts_way_name")
+load(":rts_ways.bzl", "RTS_LIBRARY", "RTS_VARIANTS", "RTS_WAY_UNITS", "rts_library_file")
 
 def _units(way):
     return [] if way == "v" else way.split("_")
@@ -57,8 +57,8 @@ def _rts_package_impl(ctx: AnalysisContext) -> list[Provider]:
                 if shared.lib.output == lib
             ]
         else:
-            lib = (provider.prof_lib if profiling else provider.lib)[LinkStyle("static")].libs[0]
-        files[rts_library_file(units + (["p"] if profiling else []))] = lib
+            lib = (provider.prof_lib if "p" in units else provider.lib)[LinkStyle("static")].libs[0]
+        files[rts_library_file(units)] = lib
         some_variant = some_variant or provider
     libdir = ctx.actions.symlinked_dir("lib", files)
 
@@ -66,18 +66,17 @@ def _rts_package_impl(ctx: AnalysisContext) -> list[Provider]:
     # libraries), with GHC's hs-libraries in libdir instead.
     db = ctx.actions.declare_output("db", dir = True)
     variant_info = (some_variant.prof_lib if profiling else some_variant.lib).values()[0]
+    # What GHC links the RTS with: what its own C needs (-lm, -lrt, say).
+    own = get_own_link_infos(library[MergedLinkInfo], LinkStrategy("static"))
+    manifest = ctx.actions.write_json("package.json", [{
+        "db": variant_info.db,
+        "dynamic_library_dirs": [libdir],
+        "hs_library": ctx.attrs.hs_library,
+        "ld_options": own.default.pre_flags if own else [],
+        "library_dirs": [libdir],
+    }], with_inputs = True)
     ctx.actions.run(
-        cmd_args(
-            "python3",
-            ctx.attrs._package_db,
-            "linked-by-ghc",
-            ctx.attrs.ghc_pkg[RunInfo],
-            db.as_output(),
-            variant_info.db,
-            libdir,
-            ctx.attrs.hs_library,
-            hidden = [libdir],
-        ),
+        cmd_args("python3", ctx.attrs._package_db, ctx.attrs.ghc_pkg[RunInfo], db.as_output(), manifest),
         category = "rts_package",
     )
     hlib = HaskellLibraryInfo(
@@ -113,9 +112,7 @@ def _rts_package_impl(ctx: AnalysisContext) -> list[Provider]:
     library_link = library[HaskellLinkInfo]
     haskell_link_info = HaskellLinkInfo(info = link_info(library_link.info), prof_info = link_info(library_link.prof_info))
 
-    # GHC links the RTS: what is linked with it is only what its own C needs
-    # (-lm, -lrt, say).
-    own = get_own_link_infos(library[MergedLinkInfo], LinkStrategy("static"))
+    # GHC links the RTS: what is linked with it is only what its own C needs.
     link_infos = {
         output_style: LinkInfos(default = LinkInfo(name = ctx.label.name, pre_flags = own.default.pre_flags if own else []))
         for output_style in LibOutputStyle
@@ -172,40 +169,44 @@ _rts_package_rule = rule(
     },
 )
 
-def _variant_ways(static):
-    return [way for way in RTS_VARIANTS if ("dyn" in _units(way)) != static]
+# Whether an installation of the libraries (all_ways) has profiled ones:
+# `profiled_libraries` in the ghc section of .buckconfig.
+PROFILED_LIBRARIES = read_root_config("ghc", "profiled_libraries", "true") == "true"
+
+_STATIC_WAYS = [way for way in RTS_VARIANTS if "dyn" not in _units(way) and "p" not in _units(way)]
+_DYNAMIC_WAYS = [way for way in RTS_VARIANTS if "dyn" in _units(way)]
+_PROFILED_WAYS = [way for way in RTS_VARIANTS if "p" in _units(way)]
 
 def _package_ways(f):
-    # Selects f(static, profiling) by the ways that the build mode links
-    # programs (see buck2/haskell.bzl): dynamic ones or static ones, or
-    # profiled static ones in a profiling configuration.
+    # Selects f(ways) for the ways of the RTS's package in the
+    # configuration: those of the configuration's libraries (see
+    # buck2/haskell.bzl), which a GHC that has them installed links
+    # programs with. They are built shared only when executables are linked
+    # shared, and otherwise static and shared, with profiled ones in a
+    # profiling configuration or an installation of them (all_ways).
+    every = _STATIC_WAYS + _DYNAMIC_WAYS
     return select({
-        RTS_WAY_UNITS["p"]: f(True, True),
+        "root//buck2/constraints:all_ways": f(every + (_PROFILED_WAYS if PROFILED_LIBRARIES else [])),
         "DEFAULT": select({
-            "root//buck2/constraints:static": f(True, False),
-            "root//buck2/constraints:shared": f(False, False),
+            RTS_WAY_UNITS["p"]: f(every + _PROFILED_WAYS),
             "DEFAULT": select({
-                "root//buck2/constraints:opt": f(True, False),
-                "DEFAULT": f(False, False),
+                "root//buck2/constraints:static": f(every),
+                "root//buck2/constraints:shared": f(_DYNAMIC_WAYS),
+                "DEFAULT": select({
+                    "root//buck2/constraints:opt": f(every),
+                    "DEFAULT": f(_DYNAMIC_WAYS),
+                }),
             }),
         }),
     })
 
-def _way_names(static, profiling):
-    # GHC's names of the ways of the RTS's package (thr_debug_p, say).
-    names = []
-    for way in _variant_ways(static):
-        units = _units(way) + (["p"] if profiling else [])
-        names.append(rts_way_name([u for u in RTS_WAY_UNITS if u in units]))
-    return names
-
 def rts_package_ways():
     """Selects the ways of the RTS's package (rts_package()) in the
     configuration, as GHC names them."""
-    return _package_ways(_way_names)
+    return _package_ways(lambda ways: ways)
 
 # Every way of the RTS's package in some configuration.
-RTS_PACKAGE_WAYS = _way_names(True, False) + _way_names(False, False) + _way_names(True, True)
+RTS_PACKAGE_WAYS = _STATIC_WAYS + _DYNAMIC_WAYS + _PROFILED_WAYS
 
 def rts_package(name, library, ghc_pkg):
     """The RTS's package (see rts.bzl), of `library` (the rts library's
@@ -217,6 +218,6 @@ def rts_package(name, library, ghc_pkg):
         hs_library = RTS_LIBRARY,
         library = library,
         profiling = select({RTS_WAY_UNITS["p"]: True, "DEFAULT": False}),
-        variants = _package_ways(lambda static, _profiling: {way: library + "-" + way for way in _variant_ways(static)}),
+        variants = _package_ways(lambda ways: {way: library + "-" + way for way in ways}),
         visibility = ["PUBLIC"],
     )

@@ -30,12 +30,12 @@
   # values), as in cfg:opt-clang-stage1: see buck2/prelude/cfg/modifier/name.bzl.
   named_constraint_settings = root//buck2/constraints:build_mode, \
     root//buck2/constraints:linking, \
+    root//buck2/constraints:libraries, \
     prelude//cfg/exec_platform/marker:is_exec_platform, \
     root//buck2/constraints:profiling, \
     root//buck2/constraints:sanitizer, \
     root//buck2/constraints:compiler, \
     toolchains//:ghc_stage, \
-    toolchains//:rts_variants, \
     toolchains//:rts_threaded, \
     toolchains//:rts_debug, \
     toolchains//:rts_dynamic
@@ -65,3 +65,10 @@
   #
   # These can also be chosen on the command line, e.g.
   #   buck2 build -c ghc.stage1=opt,static ...
+
+  # Whether to build profiled libraries in a build with -m all_ways
+  # (default: true). In a build without -m all_ways, profiled
+  # libraries will only be built if needed, i.e. when prof is selected
+  # for a stage above.
+  #
+  #   profiled_libraries = true
