@@ -274,7 +274,9 @@ cabal-buck2/
 /libraries/**/BUCK
 /rts/BUCK
 /utils/**/BUCK
+/testsuite/ghc-config/BUCK
 /libraries/**/PACKAGE
+/utils/**/PACKAGE
 /rts/PACKAGE
 /toolchains/version.bzl
 /cabal.project.stage1

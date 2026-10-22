@@ -1,0 +1,12 @@
+# The testsuite's programs (see hadrian/src/Rules/Test.hs).
+
+# What the driver runs each test with, to time it out: timeout.py, run with
+# python3.
+genrule(
+    name = "timeout",
+    srcs = ["timeout/timeout.py"],
+    out = "timeout",
+    cmd = "(echo '#!/usr/bin/env python3' && tail -n +2 $SRCS) > $OUT && chmod +x $OUT",
+    executable = True,
+    visibility = ["PUBLIC"],
+)
