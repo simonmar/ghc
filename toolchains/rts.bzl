@@ -31,7 +31,7 @@ load(
     "traverse_shared_library_info",
 )
 load("@prelude//linking:types.bzl", "Linkage")
-load(":rts_ways.bzl", "RTS_LIBRARY", "RTS_VARIANTS", "RTS_WAY_UNITS", "rts_library_file")
+load(":rts_ways.bzl", "RTS_LIBRARY", "RTS_VARIANTS", "RTS_WAY_UNITS", "rts_library_file", "rts_way_name")
 
 def _units(way):
     return [] if way == "v" else way.split("_")
@@ -172,33 +172,51 @@ _rts_package_rule = rule(
     },
 )
 
+def _variant_ways(static):
+    return [way for way in RTS_VARIANTS if ("dyn" in _units(way)) != static]
+
+def _package_ways(f):
+    # Selects f(static, profiling) by the ways that the build mode links
+    # programs (see buck2/haskell.bzl): dynamic ones or static ones, or
+    # profiled static ones in a profiling configuration.
+    return select({
+        RTS_WAY_UNITS["p"]: f(True, True),
+        "DEFAULT": select({
+            "root//buck2/constraints:static": f(True, False),
+            "root//buck2/constraints:shared": f(False, False),
+            "DEFAULT": select({
+                "root//buck2/constraints:opt": f(True, False),
+                "DEFAULT": f(False, False),
+            }),
+        }),
+    })
+
+def _way_names(static, profiling):
+    # GHC's names of the ways of the RTS's package (thr_debug_p, say).
+    names = []
+    for way in _variant_ways(static):
+        units = _units(way) + (["p"] if profiling else [])
+        names.append(rts_way_name([u for u in RTS_WAY_UNITS if u in units]))
+    return names
+
+def rts_package_ways():
+    """Selects the ways of the RTS's package (rts_package()) in the
+    configuration, as GHC names them."""
+    return _package_ways(_way_names)
+
+# Every way of the RTS's package in some configuration.
+RTS_PACKAGE_WAYS = _way_names(True, False) + _way_names(False, False) + _way_names(True, True)
+
 def rts_package(name, library, ghc_pkg):
     """The RTS's package (see rts.bzl), of `library` (the rts library's
-    label) built for each of the ways that the build mode links programs
-    (see buck2/haskell.bzl): dynamic ones or static ones, or profiled static
-    ones in a profiling configuration."""
-    static = [way for way in RTS_VARIANTS if "dyn" not in _units(way)]
-    dynamic = [way for way in RTS_VARIANTS if "dyn" in _units(way)]
-
-    def variants(ways):
-        return {way: library + "-" + way for way in ways}
-
+    label) built for each of its ways in the configuration (see
+    _package_ways())."""
     _rts_package_rule(
         name = name,
         ghc_pkg = ghc_pkg,
         hs_library = RTS_LIBRARY,
         library = library,
         profiling = select({RTS_WAY_UNITS["p"]: True, "DEFAULT": False}),
-        variants = select({
-            RTS_WAY_UNITS["p"]: variants(static),
-            "DEFAULT": select({
-                "root//buck2/constraints:static": variants(static),
-                "root//buck2/constraints:shared": variants(dynamic),
-                "DEFAULT": select({
-                    "root//buck2/constraints:opt": variants(static),
-                    "DEFAULT": variants(dynamic),
-                }),
-            }),
-        }),
+        variants = _package_ways(lambda static, _profiling: {way: library + "-" + way for way in _variant_ways(static)}),
         visibility = ["PUBLIC"],
     )
