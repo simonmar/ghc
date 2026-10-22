@@ -994,6 +994,19 @@ AC_CONFIG_FILES(
   hadrian/cfg/default.target
 ])
 
+dnl The project file of the stage1 packages (`cabal buck2 --later-stage`),
+dnl with the flags that depend on the target and on what configure found (as
+dnl Hadrian gives them).
+CABAL_FLAGS([RtsCabalFlags],
+  [librt:UseLibrt use-system-libffi:UseSystemLibFFI
+   libffi-adjustors:UseLibffiForAdjustors libbfd:UseLibbfd
+   need-atomic:NeedLibatomic libdw:UseLibdw libnuma:UseLibNuma
+   libzstd:UseLibZstd static-libzstd:UseStaticLibZstd
+   leading-underscore:LeadingUnderscore unregisterised:Unregisterised
+   tables-next-to-code:TablesNextToCode])
+CABAL_FLAGS([GhcInternalCabalFlags], [need-atomic:NeedLibatomic])
+AC_CONFIG_FILES([cabal.project.stage1])
+
 dnl The .cabal files of the packages whose version is GHC's own. Hadrian
 dnl generates them from the same templates, but other Cabal-based builds
 dnl (`cabal buck2`) need them before they start.
