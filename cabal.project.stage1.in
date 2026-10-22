@@ -1,9 +1,8 @@
 -- The packages of stage1: built by the stage1 compiler (see `cabal buck2
 -- --later-stage`). Only the packages and their flags are taken from here:
--- nothing is solved.
---
--- TODO: the flags are what Hadrian gives these packages on x86_64 Linux;
--- configure should work them out.
+-- nothing is solved. cabal.project.stage1 is generated from
+-- cabal.project.stage1.in by configure, with the flags that depend on the
+-- target and on what configure found.
 packages: rts
           libraries/ghc-internal
           libraries/ghc-prim
@@ -61,11 +60,14 @@ packages: rts
           utils/unlit
 
 package rts
-  flags: +librt -use-system-libffi -libffi-adjustors -libbfd -need-atomic -libdw -libnuma -libzstd -static-libzstd -leading-underscore -unregisterised +tables-next-to-code
+  flags: @RtsCabalFlags@
 
+-- The native bignum backend: gmp (Hadrian's default) needs ghc-internal's
+-- configure script to be run --with-gmp.
 package ghc-internal
-  flags: +bignum-native -bignum-gmp
+  flags: +bignum-native -bignum-gmp @GhcInternalCabalFlags@
 
+-- As Hadrian builds it, unless its flavour enables simdutf.
 package text
   flags: -simdutf
 
