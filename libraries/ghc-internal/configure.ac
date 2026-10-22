@@ -142,6 +142,13 @@ AC_ARG_WITH([gmp],
     [GMP_ENABLED=YES],
     [GMP_ENABLED=NO])
 
+dnl The package's bignum-gmp flag enables it too: Cabal gives a configure
+dnl script the package's flags (CABAL_FLAG_<flag>).
+if test "$CABAL_FLAG_bignum_gmp" = 1
+then
+    GMP_ENABLED=YES
+fi
+
 AC_ARG_WITH([gmp-includes],
   [AS_HELP_STRING([--with-gmp-includes],
     [directory containing gmp.h])],
@@ -196,6 +203,9 @@ dnl--------------------------------------------------------------------
    then
        AC_MSG_RESULT([no])
        AC_CHECK_HEADER([gmp.h], , [AC_MSG_ERROR([Cannot find gmp.h])])
+       dnl ghc-gmp.h is then the system's gmp.h (the in-tree GMP's gmp.h
+       dnl is the build system's to provide).
+       AC_CONFIG_FILES([include/ghc-gmp.h:gmp/ghc-gmp.h])
    else
        AC_MSG_RESULT([yes])
        HaveSecurePowm=1
