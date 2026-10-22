@@ -9,21 +9,15 @@ load("@prelude//haskell:link_info.bzl", "HaskellLinkInfo")
 load("@prelude//haskell:toolchain.bzl", "HaskellPlatformInfo", "HaskellToolchainInfo")
 load("@prelude//haskell:util.bzl", "haskell_library_unit_id")
 load("@prelude//linking:link_info.bzl", "LinkStyle")
-load(":rts_ways.bzl", "rts_way_combinations", "rts_way_name")
 
 def _hs_string(s):
     return '"' + s.replace("\\", "\\\\").replace('"', '\\"') + '"'
-
-def _all_ways():
-    # Every way of the RTS (rts_ways.bzl). GHC doesn't read them; Cabal asks
-    # GHC for them, to know which ways it can build.
-    return [rts_way_name(units) for units in rts_way_combinations()]
 
 def _ghc_libdir_impl(ctx: AnalysisContext) -> list[Provider]:
     settings = [
         ("unlit command", "$topdir/bin/unlit"),
         ("Use interpreter", "YES" if ctx.attrs.interpreter else "NO"),
-        ("RTS ways", " ".join(_all_ways())),
+        ("RTS ways", " ".join(ctx.attrs.rts_ways)),
         ("Relative Global Package DB", "package.conf.d"),
         ("base unit-id", haskell_library_unit_id(ctx.attrs.base.raw_target())),
         ("Project Unit Id", haskell_library_unit_id(ctx.attrs.ghc_library.raw_target())),
@@ -90,6 +84,10 @@ ghc_libdir = rule(
         # installed ones, built by the GHC before it (the stage1 libraries,
         # for the stage2 GHC).
         "packages": attrs.list(attrs.dep(), default = []),
+        # The ways of the RTS that what the GHC builds is linked with, which
+        # GHC (linking its external interpreter) and Cabal (which ways a
+        # compiler supports) read.
+        "rts_ways": attrs.list(attrs.string()),
         "target": attrs.source(),
         # The programs that GHC runs, which run where it does.
         "unlit": attrs.exec_dep(providers = [RunInfo]),

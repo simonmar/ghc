@@ -2,7 +2,7 @@ load("@haskell-toolchains//:defaults.bzl", "CABAL_GHC", "CABAL_GHC_PKG", "defaul
 load("@third-party-haskell//:tools.bzl", "GHC_DYNAMIC")
 load("@root//cabal-buck2:packages.bzl", "PACKAGE_SETS", "PACKAGE_SET_LIBRARIES", "PACKAGE_TARGETS")
 load(":libdir.bzl", "ghc_libdir", "ghc_toolchain")
-load(":rts.bzl", "rts_package")
+load(":rts.bzl", "RTS_PACKAGE_WAYS", "rts_package", "rts_package_ways")
 load(":rts_ways.bzl", "rts_way_settings", "rts_way_transitions")
 load(":stages.bzl", "STAGES", "stage_alias", "stage_links_shared", "stage_tool", "stage_transition")
 
@@ -55,6 +55,9 @@ ghc_libdir(
     ghc_pkg = "root//utils/ghc-pkg:ghc-pkg",
     interpreter = select({":stage1": True, "DEFAULT": False}),
     packages = select({":stage1": _STAGE1_LIBRARIES, "DEFAULT": []}),
+    # The ways of the installed RTS, or else every way that the RTS of what
+    # the GHC builds may have.
+    rts_ways = select({":stage1": rts_package_ways(), "DEFAULT": RTS_PACKAGE_WAYS}),
     target = "root//hadrian/cfg:default.target",
     unlit = "root//utils/unlit:unlit",
 )
