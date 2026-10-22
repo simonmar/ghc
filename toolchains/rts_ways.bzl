@@ -17,16 +17,18 @@ RTS_WAY_UNITS = {
     "dyn": "toolchains//:dynamic",
 }
 
-# The units that distinguish the variants of the RTS of a configuration.
-_VARIANT_UNITS = ["thr", "debug", "dyn"]
-
-def rts_way_combinations(units = list(RTS_WAY_UNITS)):
-    """Every sub-list of `units` (the vanilla way's first), keeping their
+def rts_way_combinations():
+    """Every combination of the units (the vanilla way's first), in their
     order."""
     combinations = [[]]
-    for unit in units:
+    for unit in RTS_WAY_UNITS:
         combinations = combinations + [c + [unit] for c in combinations]
     return combinations
+
+def _variant_combinations():
+    # The ways of the RTS's variants: every combination of units, except
+    # profiled dynamic ones, which aren't built.
+    return [units for units in rts_way_combinations() if not ("p" in units and "dyn" in units)]
 
 def _setting_name(units):
     return "rts-way-" + "_".join(units)
@@ -63,11 +65,13 @@ def rts_way_transitions():
        toolchains//:to-rts-dyn
        ...
     """
-    for units in rts_way_combinations(_VARIANT_UNITS):
+    for units in _variant_combinations():
+        # A variant is linked as its way is (its library built so).
+        linking = "root//buck2/constraints:" + ("shared" if "dyn" in units else "static")
         transition_utils.modify_constraints_transition(
             name = _transition_name(units),
-            add = [RTS_WAY_UNITS[u] for u in units],
-            remove = [RTS_WAY_UNITS[u] for u in _VARIANT_UNITS if u not in units],
+            add = [RTS_WAY_UNITS[u] for u in units] + [linking],
+            remove = [RTS_WAY_UNITS[u] for u in RTS_WAY_UNITS if u not in units],
             visibility = ["PUBLIC"],
         )
 
@@ -89,11 +93,11 @@ def rts_way_name(units):
     """The name of a way, as GHC knows it (`RTS way` in +RTS --info)."""
     return "_".join(units) if units else "v"
 
-# The variants of the RTS of a configuration: way name (without profiling,
-# which the configuration has or hasn't) -> the transition to it.
+# The variants of the RTS: way name -> the transition to it (a profiled one
+# is built in a profiling configuration).
 RTS_VARIANTS = {
     rts_way_name(units): "toolchains//:" + _transition_name(units)
-    for units in rts_way_combinations(_VARIANT_UNITS)
+    for units in _variant_combinations()
 }
 
 # The library of the RTS, as GHC names it: see unitHsLibs in
