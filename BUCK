@@ -1,3 +1,4 @@
+load("@toolchains//:install.bzl", "ghc_install")
 load("@toolchains//:libdir.bzl", "exec_with_libdir", "with_libdir")
 load("@toolchains//:stages.bzl", "STAGES")
 
@@ -41,3 +42,23 @@ load("@toolchains//:stages.bzl", "STAGES")
         ("ghc-pkg", "--global-package-db={}/package.conf.d"),
     ]
 ]
+
+# The stage2 GHC installed, with the programs installed with it and its
+# libraries in every way: for the testsuite, say (its TEST_HC is
+# <the output>/bin/ghc).
+#
+#   buck2 build //:stage2-install --show-output
+ghc_install(
+    name = "stage2-install",
+    incoming_transition = "toolchains//:to-all-ways",
+    libdir = "toolchains//:stage2-libdir",
+    programs = {
+        "ghc": "toolchains//:stage2-ghc",
+        "ghc-pkg": "toolchains//:stage2-ghc-pkg",
+        "hp2ps": "root//utils/hp2ps:hp2ps-stage1",
+        "hpc": "root//utils/hpc:hpc-stage1",
+        "hsc2hs": "root//utils/hsc2hs:hsc2hs-stage1",
+        "runghc": "root//utils/runghc:runghc-stage1",
+    },
+    visibility = ["PUBLIC"],
+)

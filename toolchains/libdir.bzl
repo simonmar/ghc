@@ -11,6 +11,10 @@ load("@prelude//haskell:util.bzl", "haskell_library_unit_id")
 load("@prelude//linking:link_info.bzl", "LinkStrategy", "LinkStyle", "MergedLinkInfo", "get_own_link_infos")
 load(":version.bzl", "GHC_VERSION")
 
+# What an installation of the libdir's GHC needs of it: the include dirs of
+# its installed rts package (for hsc2hs).
+GhcLibdirInfo = provider(fields = {"rts_include_dirs": provider_field(list[Artifact])})
+
 def _hs_string(s):
     return '"' + s.replace("\\", "\\\\").replace('"', '\\"') + '"'
 
@@ -29,14 +33,16 @@ def _ghc_libdir_impl(ctx: AnalysisContext) -> list[Provider]:
         "[" + "\n,".join(["({}, {})".format(_hs_string(k), _hs_string(v)) for k, v in settings]) + "\n]\n",
     )
     libdir = ctx.actions.declare_output("lib", dir = True)
-    packages, files = _installed_packages(ctx)
+    packages, files, rts_include_dirs = _installed_packages(ctx)
     manifest = ctx.actions.write_json("packages.json", packages, with_inputs = True)
+    hsc2hs_data = [ctx.attrs.hsc2hs_data] if ctx.attrs.hsc2hs_data else []
     script = " && ".join([
         'mkdir -p "$1/targets" "$1/bin"',
         'cp "$2" "$1/settings"',
         'cp "$3" "$1/targets/default.target"',
         'cp "$4" "$1/bin/unlit"',
-        "shift 4",
+    ] + ['cp "$5/template-hsc.h" "$1/template-hsc.h"' for _ in hsc2hs_data] + [
+        "shift {}".format(4 + len(hsc2hs_data)),
         'python3 "$@"',
     ])
     ctx.actions.run(
@@ -49,6 +55,7 @@ def _ghc_libdir_impl(ctx: AnalysisContext) -> list[Provider]:
             settings_file,
             ctx.attrs.target,
             ctx.attrs.unlit[RunInfo],
+            hsc2hs_data,
             ctx.attrs._package_db,
             ctx.attrs.ghc_pkg[RunInfo],
             cmd_args(libdir.as_output(), format = "{}/package.conf.d"),
@@ -59,7 +66,10 @@ def _ghc_libdir_impl(ctx: AnalysisContext) -> list[Provider]:
     )
 
     # What the package database refers to, for what runs the GHC.
-    return [DefaultInfo(default_output = libdir, other_outputs = files)]
+    return [
+        DefaultInfo(default_output = libdir, other_outputs = files),
+        GhcLibdirInfo(rts_include_dirs = rts_include_dirs),
+    ]
 
 def _libraries(ctx: AnalysisContext, infos) -> dict:
     # The libraries of `packages`, and those they depend on, by unit id:
@@ -67,12 +77,13 @@ def _libraries(ctx: AnalysisContext, infos) -> dict:
     children = filter(None, [infos(dep[HaskellLinkInfo]) for dep in ctx.attrs.packages if dep.get(HaskellLinkInfo)])
     return {lib.id: lib for lib in ctx.actions.tset(HaskellLibraryInfoTSet, children = children).traverse()}
 
-def _installed_packages(ctx: AnalysisContext) -> (list, list):
+def _installed_packages(ctx: AnalysisContext) -> (list, list, list):
     # The packages installed as GHC's are: each with its library in the ways
     # it was built (static, shared and, if `profiled`, profiled), which GHC
     # chooses from by the way it links (hs-libraries, named as GHC names
     # them), and with what it must be linked with. Returns them
-    # (package_db.py's manifest), and the files they refer to.
+    # (package_db.py's manifest), the files they refer to, and the rts
+    # package's include dirs.
     static = _libraries(ctx, lambda info: info.info.get(LinkStyle("static")))
     shared = _libraries(ctx, lambda info: info.info.get(LinkStyle("shared")))
     profiled = _libraries(ctx, lambda info: info.prof_info.get(LinkStyle("static"))) if ctx.attrs.profiled else {}
@@ -84,6 +95,7 @@ def _installed_packages(ctx: AnalysisContext) -> (list, list):
             linked_with[info.info.values()[0].value.id] = own.default.pre_flags
     packages = []
     files = []
+    rts_include_dirs = []
     for id in static | shared:
         lib = static.get(id) or shared[id]
         files += lib.include_dirs
@@ -91,6 +103,7 @@ def _installed_packages(ctx: AnalysisContext) -> (list, list):
             # Installed already (the RTS's package).
             packages.append({"db": lib.db})
             files += lib.libs
+            rts_include_dirs = lib.include_dirs
             continue
 
         # GHC's name for the library, as for a Haskell one (HS...), with the
@@ -120,7 +133,7 @@ def _installed_packages(ctx: AnalysisContext) -> (list, list):
             "library_dirs": [library_dir],
         })
         files += [library_dir] + import_dirs
-    return packages, files
+    return packages, files, rts_include_dirs
 
 ghc_libdir = rule(
     impl = _ghc_libdir_impl,
@@ -130,6 +143,9 @@ ghc_libdir = rule(
         "base": attrs.label(),
         "ghc_library": attrs.label(),
         "ghc_pkg": attrs.exec_dep(providers = [RunInfo]),
+        # The data files of the hsc2hs installed with the GHC: its
+        # template-hsc.h, which is in the libdir.
+        "hsc2hs_data": attrs.option(attrs.source(allow_directory = True), default = None),
         "interpreter": attrs.bool(default = False),
         # The libraries of the global package database: the GHC's
         # installed ones, built by the GHC before it (the stage1 libraries,
