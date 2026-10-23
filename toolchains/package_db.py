@@ -3,8 +3,8 @@
 
     package_db.py GHC_PKG OUT MANIFEST
 
-MANIFEST is a JSON list of packages, each with "db", the package database of
-the package's own .conf file, and optionally:
+MANIFEST is a JSON list of packages, each with "conf", its .conf file, or
+"db", the package database of the package's own .conf file, and optionally:
 
   - "hs_library": the package's library is one that GHC installs, instead of
     its own: GHC names its files by way (lib<name>.a, lib<name>_p.a,
@@ -62,13 +62,15 @@ def main():
     with open(manifest) as f:
         packages = json.load(f)
     for package in packages:
-        db = package["db"]
-        root = os.path.dirname(os.path.normpath(db))
-        for name in sorted(os.listdir(db)):
-            if not name.endswith(".conf"):
-                continue
-            with open(os.path.join(db, name)) as f:
-                text = relocate(f.read(), root, dst_root)
+        if "conf" in package:
+            confs = [package["conf"]]
+        else:
+            db = package["db"]
+            confs = [os.path.join(db, name) for name in sorted(os.listdir(db)) if name.endswith(".conf")]
+        for conf in confs:
+            name = os.path.basename(conf)
+            with open(conf) as f:
+                text = relocate(f.read(), os.path.dirname(os.path.dirname(os.path.normpath(conf))), dst_root)
             fields = {}
             if "hs_library" in package:
                 fields["hs-libraries"] = package["hs_library"]

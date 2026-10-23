@@ -1,0 +1,7 @@
+# What configure generated here, for the buck2 build.
+
+# The package of the system's C++ standard library, which a GHC has installed.
+export_file(
+    name = "system-cxx-std-lib-1.0.conf",
+    visibility = ["PUBLIC"],
+)

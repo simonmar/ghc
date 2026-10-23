@@ -34,6 +34,7 @@ def _ghc_libdir_impl(ctx: AnalysisContext) -> list[Provider]:
     )
     libdir = ctx.actions.declare_output("lib", dir = True)
     packages, files, rts_include_dirs = _installed_packages(ctx)
+    packages += [{"conf": conf} for conf in ctx.attrs.extra_packages]
     manifest = ctx.actions.write_json("packages.json", packages, with_inputs = True)
     hsc2hs_data = [ctx.attrs.hsc2hs_data] if ctx.attrs.hsc2hs_data else []
     script = " && ".join([
@@ -142,6 +143,9 @@ ghc_libdir = rule(
         # dependencies, as they are built by the GHC of this libdir.
         "base": attrs.label(),
         "ghc_library": attrs.label(),
+        # The package files of packages that a GHC has installed that the
+        # build doesn't make (system-cxx-std-lib).
+        "extra_packages": attrs.list(attrs.source(), default = []),
         "ghc_pkg": attrs.exec_dep(providers = [RunInfo]),
         # The data files of the hsc2hs installed with the GHC: its
         # template-hsc.h, which is in the libdir.

@@ -53,6 +53,7 @@ ghc_libdir(
     name = "ghc-libdir",
     base = "root//libraries/base:base",
     ghc_library = "root//compiler:ghc",
+    extra_packages = ["root//mk:system-cxx-std-lib-1.0.conf"],
     ghc_pkg = "root//utils/ghc-pkg:ghc-pkg",
     hsc2hs_data = select({":stage1": "root//utils/hsc2hs:hsc2hs-data", "DEFAULT": None}),
     interpreter = select({":stage1": True, "DEFAULT": False}),
