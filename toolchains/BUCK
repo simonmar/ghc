@@ -101,9 +101,32 @@ ghc_toolchain(
     visibility = ["PUBLIC"],
 )
 
+# Profiling detail level for all Haskell compilations, using the same naming
+# scheme as Cabal's --profiling-detail=<level> option.
+#
+# The testsuite's profiling tests expect late-toplevel, so that's the default.
+_PROFILING_DETAIL = {
+    "all-functions": ["-fprof-auto"],
+    "exported-functions": ["-fprof-auto-exported"],
+    "late-toplevel": ["-fprof-late"],
+    "none": [],
+    "toplevel-functions": ["-fprof-auto-top"],
+}
+
+_profiling_detail = read_root_config("ghc", "profiling_detail", "late-toplevel")
+
+_profiling_detail in _PROFILING_DETAIL or fail("[ghc] profiling_detail: unknown level {}, expected one of {}".format(
+    repr(_profiling_detail),
+    ", ".join(_PROFILING_DETAIL),
+))
+
 default_haskell_toolchain(
     name = "haskell-without-libdir",
     compiler = stage_tool("ghc", CABAL_GHC),
+    compiler_flags = select(dict(
+        {"toolchains//:" + stage: _PROFILING_DETAIL[_profiling_detail] for stage in STAGES[1:]},
+        DEFAULT = [],
+    )),
     packager = stage_tool("ghc-pkg", CABAL_GHC_PKG),
     # A GHC that the build makes is linked as the build mode of the stage
     # before says.

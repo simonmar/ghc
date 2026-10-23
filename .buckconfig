@@ -72,3 +72,14 @@
   # for a stage above.
   #
   #   profiled_libraries = true
+
+  # Profiling detail level for all libraries. The default is
+  # late-toplevel, because that's what the testsuite's profiling tests
+  # expect. One of:
+  #
+  #   profiling_detail = none
+  #   profiling_detail = all-functions
+  #   profiling_detail = exported-functions
+  #   profiling_detail = late-toplevel
+  #   profiling_detail = toplevel-functions
+
