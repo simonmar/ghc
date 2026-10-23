@@ -36,27 +36,21 @@ def _ghc_libdir_impl(ctx: AnalysisContext) -> list[Provider]:
     packages, files, rts_include_dirs = _installed_packages(ctx)
     packages += [{"conf": conf} for conf in ctx.attrs.extra_packages]
     manifest = ctx.actions.write_json("packages.json", packages, with_inputs = True)
-    hsc2hs_data = [ctx.attrs.hsc2hs_data] if ctx.attrs.hsc2hs_data else []
-    script = " && ".join([
-        'mkdir -p "$1/targets" "$1/bin"',
-        'cp "$2" "$1/settings"',
-        'cp "$3" "$1/targets/default.target"',
-        'cp "$4" "$1/bin/unlit"',
-    ] + ['cp "$5/template-hsc.h" "$1/template-hsc.h"' for _ in hsc2hs_data] + [
-        "shift {}".format(4 + len(hsc2hs_data)),
-        'python3 "$@"',
-    ])
+    contents = {
+        "bin/unlit": ctx.attrs.unlit[DefaultInfo].default_outputs[0],
+        "settings": settings_file,
+        "targets/default.target": ctx.attrs.target,
+    } | ctx.attrs.files
+    if ctx.attrs.hsc2hs_data:
+        contents["template-hsc.h"] = ctx.attrs.hsc2hs_data.project("template-hsc.h")
     ctx.actions.run(
         cmd_args(
             "sh",
             "-c",
-            script,
+            'mkdir -p "$1" && cp -RL "$2/." "$1/" && shift 2 && python3 "$@"',
             "--",
             libdir.as_output(),
-            settings_file,
-            ctx.attrs.target,
-            ctx.attrs.unlit[RunInfo],
-            hsc2hs_data,
+            ctx.actions.symlinked_dir("contents", contents),
             ctx.attrs._package_db,
             ctx.attrs.ghc_pkg[RunInfo],
             cmd_args(libdir.as_output(), format = "{}/package.conf.d"),
@@ -146,6 +140,8 @@ ghc_libdir = rule(
         # The package files of packages that a GHC has installed that the
         # build doesn't make (system-cxx-std-lib).
         "extra_packages": attrs.list(attrs.source(), default = []),
+        # Other files that it has, by their names in it.
+        "files": attrs.dict(attrs.string(), attrs.source(), default = {}),
         "ghc_pkg": attrs.exec_dep(providers = [RunInfo]),
         # The data files of the hsc2hs installed with the GHC: its
         # template-hsc.h, which is in the libdir.
