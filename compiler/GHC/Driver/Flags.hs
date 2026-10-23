@@ -1019,6 +1019,13 @@ codeGenFlags = EnumSet.fromList
    , Opt_InfoTableMapWithStack
    , Opt_InfoTableMapWithFallback
    , Opt_OrigThunkInfo
+
+     -- Flags that affect the cost centres of profiled code
+     -- (-fprof-auto is included in the fingerprint separately)
+   , Opt_ProfLateInlineCcs
+   , Opt_ProfLateCcs
+   , Opt_ProfLateOverloadedCcs
+   , Opt_ProfLateoverloadedCallsCCs
    ]
 
 data WarningFlag =
