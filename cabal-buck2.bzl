@@ -64,11 +64,6 @@ OVERRIDES = {
             "srcs": {
                 "GHC.Internal.PrimopWrappers": "//gen:primop-wrappers",
             },
-            # What GHC adds when it links ghc-internal itself: see Note
-            # [RTS/ghc-internal interface] in rts/RtsToHsIface.c.
-            # TODO: with a leading underscore on platforms whose symbols
-            # have one.
-            "exported_linker_flags": ["-Wl,-u,init_ghc_hs_iface"],
         },
     },
     "ghc-boot": {
