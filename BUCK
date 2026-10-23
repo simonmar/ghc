@@ -43,6 +43,17 @@ load("@toolchains//:stages.bzl", "STAGES")
     ]
 ]
 
+# Files that a GHC's libdir has (see toolchains/libdir.bzl).
+[
+    export_file(name = name, src = src, visibility = ["PUBLIC"])
+    for name, src in {
+        "ghc-usage.txt": "driver/ghc-usage.txt",
+        "ghci-usage.txt": "driver/ghci-usage.txt",
+        "llvm-passes": "llvm-passes",
+        "llvm-targets": "llvm-targets",
+    }.items()
+]
+
 # The stage2 GHC installed, with the programs installed with it and its
 # libraries in every way: for the testsuite, say (its TEST_HC is
 # <the output>/bin/ghc).
