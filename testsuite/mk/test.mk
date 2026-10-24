@@ -127,7 +127,8 @@ else
 RUNTEST_OPTS += -e ghc_with_dynamic_rts=False
 endif
 
-ifeq "$(filter debug, $(GhcRTSWays))" "debug"
+# Whether the compiler itself is linked with the debug RTS
+ifneq "$(findstring debug,$(RTSWay))" ""
 RUNTEST_OPTS += -e config.debug_rts=True
 else
 RUNTEST_OPTS += -e config.debug_rts=False
