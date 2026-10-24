@@ -2,6 +2,7 @@
 # configure's outputs and the packages' sources.
 
 load("@toolchains//:stages.bzl", "STAGES", "stage_number")
+load("@toolchains//:unit_ids.bzl", "GHC_UNIT_ID")
 load(":defs.bzl", "settings_config")
 
 export_file(name = "generate.py")
@@ -98,9 +99,9 @@ genrule(
 settings_config(
     name = "settings-config",
     generate = ":generate.py",
-    library = "//compiler:ghc",
     stage = stage_number(),
     system_config = "//hadrian/cfg:system.config",
+    unit_id = GHC_UNIT_ID,
     visibility = ["PUBLIC"],
 )
 
