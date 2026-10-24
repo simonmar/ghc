@@ -7,7 +7,6 @@
 load("@prelude//haskell:library_info.bzl", "HaskellLibraryInfoTSet")
 load("@prelude//haskell:link_info.bzl", "HaskellLinkInfo")
 load("@prelude//haskell:toolchain.bzl", "HaskellPlatformInfo", "HaskellToolchainInfo")
-load("@prelude//haskell:util.bzl", "haskell_library_unit_id")
 load("@prelude//linking:link_info.bzl", "LinkStrategy", "LinkStyle", "MergedLinkInfo", "get_own_link_infos")
 load(":version.bzl", "GHC_VERSION")
 
@@ -24,8 +23,8 @@ def _ghc_libdir_impl(ctx: AnalysisContext) -> list[Provider]:
         ("Use interpreter", "YES" if ctx.attrs.interpreter else "NO"),
         ("RTS ways", " ".join(ctx.attrs.rts_ways)),
         ("Relative Global Package DB", "package.conf.d"),
-        ("base unit-id", haskell_library_unit_id(ctx.attrs.base.raw_target())),
-        ("Project Unit Id", haskell_library_unit_id(ctx.attrs.ghc_library.raw_target())),
+        ("base unit-id", ctx.attrs.base_unit_id),
+        ("Project Unit Id", ctx.attrs.ghc_unit_id),
         ("ghc-internal Unit Id", "ghc-internal"),
     ]
     settings_file = ctx.actions.write(
@@ -101,18 +100,16 @@ def _installed_packages(ctx: AnalysisContext) -> (list, list, list):
             rts_include_dirs = lib.include_dirs
             continue
 
-        # GHC's name for the library, as for a Haskell one (HS...), with the
+        # The library, by the name that Cabal gives it (HS<unit id>), with the
         # shared library's own name too, its soname. A static build has the
         # shared one's interface files too (-dynamic-too).
+        name = "HS" + id
         libraries = {}
         import_dirs = [lib.import_dirs[False]]
         if id in static:
-            archive = static[id].libs[0]
-            name = "HS" + archive.basename.removeprefix("lib").removesuffix(".a")
-            libraries["lib{}.a".format(name)] = archive
+            libraries["lib{}.a".format(name)] = static[id].libs[0]
         if id in shared:
             so = shared[id].libs[0]
-            name = "HS" + so.basename.removeprefix("lib").removesuffix(".so")
             libraries[so.basename] = so
             libraries["lib{}-ghc{}.so".format(name, GHC_VERSION)] = so
         if id in profiled:
@@ -133,10 +130,10 @@ def _installed_packages(ctx: AnalysisContext) -> (list, list, list):
 ghc_libdir = rule(
     impl = _ghc_libdir_impl,
     attrs = {
-        # The libraries whose unit ids GHC needs to know: labels, not
-        # dependencies, as they are built by the GHC of this libdir.
-        "base": attrs.label(),
-        "ghc_library": attrs.label(),
+        # The unit ids that GHC needs to know, of libraries that are built by
+        # the GHC of this libdir.
+        "base_unit_id": attrs.string(),
+        "ghc_unit_id": attrs.string(),
         # The package files of packages that a GHC has installed that the
         # build doesn't make (system-cxx-std-lib).
         "extra_packages": attrs.list(attrs.source(), default = []),

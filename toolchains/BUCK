@@ -6,6 +6,7 @@ load(":libdir.bzl", "ghc_libdir", "ghc_toolchain")
 load(":rts.bzl", "PROFILED_LIBRARIES", "RTS_PACKAGE_WAYS", "rts_package", "rts_package_ways")
 load(":rts_ways.bzl", "rts_way_settings", "rts_way_transitions")
 load(":stages.bzl", "STAGES", "stage_alias", "stage_links_shared", "stage_tool", "stage_transition")
+load(":unit_ids.bzl", "BASE_UNIT_ID", "GHC_UNIT_ID")
 
 default_toolchains()
 
@@ -51,11 +52,11 @@ export_file(name = "package_db.py")
 
 ghc_libdir(
     name = "ghc-libdir",
-    base = "root//libraries/base:base",
-    ghc_library = "root//compiler:ghc",
+    base_unit_id = BASE_UNIT_ID,
     extra_packages = ["root//mk:system-cxx-std-lib-1.0.conf"],
     files = {f: "root//:" + f for f in ["ghc-usage.txt", "ghci-usage.txt", "llvm-passes", "llvm-targets"]},
     ghc_pkg = "root//utils/ghc-pkg:ghc-pkg",
+    ghc_unit_id = GHC_UNIT_ID,
     hsc2hs_data = select({":stage1": "root//utils/hsc2hs:hsc2hs-data", "DEFAULT": None}),
     interpreter = select({":stage1": True, "DEFAULT": False}),
     packages = select({":stage1": _STAGE1_LIBRARIES, "DEFAULT": []}),
