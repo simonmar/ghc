@@ -1,4 +1,6 @@
-# The testsuite's programs (see hadrian/src/Rules/Test.hs).
+# The testsuite's programs (see hadrian/src/Rules/Test.hs), and the testsuite.
+
+load(":defs.bzl", "testsuite")
 
 # What the driver runs each test with, to time it out: timeout.py, run with
 # python3.
@@ -9,4 +11,20 @@ genrule(
     cmd = "(echo '#!/usr/bin/env python3' && tail -n +2 $SRCS) > $OUT && chmod +x $OUT",
     executable = True,
     visibility = ["PUBLIC"],
+)
+
+# The testsuite, against //:stage2-install (with stage1 as .buckconfig's
+# [ghc] stage1, or -c ghc.stage1=..., builds it):
+#
+#   buck2 run //testsuite:test -- THREADS=12 TEST="T1 T2"
+testsuite(
+    name = "test",
+    # As the install is configured, so that check-ppr is built with the
+    # same stage1 libraries (all ways).
+    incoming_transition = "toolchains//:to-all-ways",
+    check_ppr = "root//utils/check-ppr:check-ppr-stage1",
+    ghc_config = "root//testsuite/ghc-config:ghc-config",
+    install = "root//:stage2-install",
+    tests_makefile = "tests/Makefile",
+    timeout = ":timeout",
 )
