@@ -11,7 +11,11 @@ MANIFEST is a JSON list of packages, each with "conf", its .conf file, or
     lib<name>-ghc<version>.so), in "library_dirs" and
     "dynamic_library_dirs";
   - "import_dirs": where its interface files are, instead of its own;
-  - "ld_options": what what links it is linked with.
+  - "ld_options": options to pass to the linker when linking this library.
+    These may include -l<lib> options, which are separated out into
+    extra-libraries (and extra-libraries-static, as Cabal has them) in the
+    final package config.
+
 
 Each package goes into OUT (a new package database), with its paths relative
 to the ${pkgroot} of OUT (its directory) rather than of its own database.
@@ -28,7 +32,7 @@ PKGROOT = re.compile(r"\$\{pkgroot\}((?:/[^\s,\"]*)?)")
 
 # The fields of a package's library, which a library that GHC installs has
 # instead.
-LIBRARY_FIELDS = ["library-dirs", "dynamic-library-dirs", "extra-libraries", "hs-libraries"]
+LIBRARY_FIELDS = ["library-dirs", "dynamic-library-dirs", "extra-libraries", "extra-libraries-static", "hs-libraries"]
 
 
 def relocate(text, src_root, dst_root):
@@ -79,8 +83,12 @@ def main():
                 text = without_fields(text, LIBRARY_FIELDS)
             if "import_dirs" in package:
                 fields["import-dirs"] = paths(package["import_dirs"])
-            if package.get("ld_options"):
-                fields["ld-options"] = " ".join(json.dumps(o) for o in package["ld_options"])
+            libs = [o[2:] for o in package.get("ld_options", []) if o.startswith("-l")]
+            options = [o for o in package.get("ld_options", []) if not o.startswith("-l")]
+            if libs:
+                fields["extra-libraries"] = fields["extra-libraries-static"] = " ".join(libs)
+            if options:
+                fields["ld-options"] = " ".join(json.dumps(o) for o in options)
             text = without_fields(text, list(fields))
             text += "".join("{}: {}\n".format(k, v) for k, v in fields.items())
             with open(os.path.join(out, name), "w") as f:
