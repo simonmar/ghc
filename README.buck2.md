@@ -32,7 +32,27 @@ It doesn't touch anything in Hadrian so you should be able to use Buck2 alongsid
 
 ## Configuration
 
-Take a look in `.buckconfig` to see how to change the build settings for stage1/stage2. You can add settings to a `.buckconfig.local` to avoid modifying tracked files.
+**Build settings**. Including optimisation levels, dynamic linking,
+library ways. Take a look in `.buckconfig` to see how to change the build settings for stage1/stage2. You can add settings to a `.buckconfig.local` to avoid modifying tracked files.
+
+**Profiling**. In `.buckconfig` you can also select whether to build
+profiling libraries, and what level of profiling detail is compiled
+into the libraries. The default is to build profiling libraries with
+`late-toplevel` detail (`-fprof-late`), as in Hadrian.
+
+**Bignum library**. There are three options, controlled by flags on
+the `ghc-internal` package:
+* `+bignum-native`: Native Haskell implementation (default on non-Windows)
+* `+bignum-gmp -bignum-native` System-installed GMP
+* **NOT SUPPORTED BY BUCK2 CURRENTLY**: Bundled GMP (default on Windows)
+
+To use the system-installed GMP, put this in
+`cabal.project.stage1.local`:
+
+```
+package ghc-internal
+    flags: +bignum-gmp -bignum-native
+```
 
 ## Building
 
@@ -54,6 +74,38 @@ You can also start GHCi with `--interactive`, and check that all the packages ar
 
 ```
 buck2 run :stage2-ghc-pkg -- list
+```
+
+To build a full install tree of GHC with libraries built all ways:
+
+```
+buck2 build :stage2-install -m all_ways --show-output
+```
+
+This will give you an inplace installation, with `bin/`, `lib/`,
+`libexec/` etc., the contents of which will be symlinked to the
+original artifacts under `buck-out/`. You can run `ghc` directly from
+`bin/ghc` in the install tree.
+
+## Running tests
+
+To run the whole testsuite:
+
+```
+buck2 run //testsuite:test -c ghc.stage1=opt,shared
+```
+
+Note that unless you already have `stage1 = opt,shared` in your
+`.buckconfig`, this will rebuild all the libraries. The testsuite
+assumes that the stage1 libraries are built optimised. If you haven't
+disabled profiling in `.buckconfig`, then this will also build the
+profiling libraries and run the profiling tests.
+
+You can pass arguments to the test driver in the same way that you
+would when running it via `make`, e.g. to run a single test:
+
+```
+buck2 run //testsuite:test -c ghc.stage1=opt,shared -- TEST=cgrun001
 ```
 
 ## Introspection
@@ -110,7 +162,7 @@ The workflow we're aiming for is this:
   ./configure            # repeat from here if any .cabal.in files are modified
   ./generate-buck2.sh    # repeat from here if any .cabal files are modified
   buck2 build :stage2-ghc
-  buck2 test //tests/...
+  buck2 run //testsuite:test
 ```
 
 The `generate-buck2.sh` step runs `cabal buck2`, which depends on a suitable `cabal-buck2` being installed somewhere.
