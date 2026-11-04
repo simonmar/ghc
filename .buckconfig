@@ -47,7 +47,7 @@
   # The mode of each stage, eg.:
   #
   #   stage0 = opt, static
-  #   stage1 = dev, shared
+  #   stage1 = opt, shared
   #   stage2 = dev, shared
   #
   # (these are the default settings). Here stageN means "everything
@@ -65,6 +65,14 @@
   #
   # These can also be chosen on the command line, e.g.
   #   buck2 build -c ghc.stage1=opt,static ...
+
+  # The optimisation of the stage2 compiler (the ghc library and
+  # program built at stage1), whatever stage1's mode: dev (-O0, the
+  # default) or opt (-O). With the default modes, this builds the
+  # stage2 compiler as Hadrian's quick flavour does: -O0, with
+  # optimised libraries.
+  #
+  #   stage2_compiler = dev
 
   # Whether to build profiled libraries in a build with -m all_ways
   # (default: true). In a build without -m all_ways, profiled

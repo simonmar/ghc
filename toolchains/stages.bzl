@@ -16,7 +16,7 @@ STAGES = ["stage0", "stage1", "stage2"]
 # command line has the command line's modes (-m).
 _DEFAULT_STAGE_MODES = {
     "stage0": "opt, static",
-    "stage1": "dev, shared",
+    "stage1": "opt, shared",
     "stage2": "dev, shared",
 }
 
@@ -38,6 +38,26 @@ def stage_modes(stage):
     if unknown or len(optimisation) != 1 or len(linking) > 1 or ("prof" in modes and "shared" in modes):
         fail("ghc.{} = {}: expected dev or opt, optionally static or shared, and optionally prof (not with shared)".format(stage, config))
     return [_MODES[m] for m in modes]
+
+# The optimisation of the GHCs that the later stages build (the ghc library
+# and the ghc program, at stage1 the stage2 GHC's), as `[ghc] stage2_compiler`
+# says, else -O0 (dev), whatever the stage's build mode: as Hadrian's quick
+# flavour builds the stage2 GHC, with optimised libraries.
+_COMPILER_OPTIMISATION = {
+    "dev": ["-O0"],
+    "opt": ["-O"],
+}
+
+def stage2_compiler_flags():
+    """The Haskell flags of the ghc library and program at the later stages,
+    after their stage's build mode's."""
+    config = read_root_config("ghc", "stage2_compiler", "dev").strip()
+    if config not in _COMPILER_OPTIMISATION:
+        fail("ghc.stage2_compiler = {}: expected dev or opt".format(config))
+    return select(dict(
+        {"toolchains//:" + stage: _COMPILER_OPTIMISATION[config] for stage in STAGES[1:]},
+        DEFAULT = [],
+    ))
 
 def stage_links_shared(stage):
     """Whether `stage`'s build mode links programs shared (as buck2/haskell.bzl

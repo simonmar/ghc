@@ -2,7 +2,7 @@
 # packages: package name -> component name -> attributes (see buck2/cabal.bzl).
 
 load("@toolchains//:rts_ways.bzl", "RTS_VARIANTS", "rts_library_file", "rts_way", "rts_way_name")
-load("@toolchains//:stages.bzl", "stage_modes")
+load("@toolchains//:stages.bzl", "stage2_compiler_flags", "stage_modes")
 
 # What the RTS is compiled with that depends on its way (as Hadrian does,
 # see rtsPackageArgs and wayCcArgs in hadrian/src/Settings).
@@ -57,6 +57,12 @@ OVERRIDES = {
                 "GHC.Settings.Config": "//gen:settings-config",
             },
             "deps": ["//gen:primop-includes"],
+            "compiler_flags": stage2_compiler_flags(),
+        },
+    },
+    "ghc-bin": {
+        "ghc": {
+            "compiler_flags": stage2_compiler_flags(),
         },
     },
     "ghc-internal": {
