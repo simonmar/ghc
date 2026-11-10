@@ -1,6 +1,6 @@
 load("@prelude//transitions:utils.bzl", "transition_utils")
-load("@haskell-toolchains//:defaults.bzl", "CABAL_GHC", "CABAL_GHC_PKG", "CABAL_HSC2HS", "default_haskell_toolchain", "default_toolchains")
-load("@third-party-haskell//:tools.bzl", "GHC_DYNAMIC")
+load("@haskell-toolchains//:defaults.bzl", "default_haskell_toolchain", "default_toolchains")
+load("@third-party-haskell//:tools.bzl", "GHC", "GHC_DYNAMIC", "GHC_PKG", "HSC2HS")
 load("@root//cabal-buck2:packages.bzl", "PACKAGE_SETS", "PACKAGE_SET_LIBRARIES", "PACKAGE_TARGETS")
 load(":hsc2hs.bzl", "hsc2hs")
 load(":libdir.bzl", "ghc_libdir", "ghc_toolchain")
@@ -131,15 +131,15 @@ _profiling_detail in _PROFILING_DETAIL or fail("[ghc] profiling_detail: unknown 
 
 default_haskell_toolchain(
     name = "haskell-without-libdir",
-    compiler = stage_tool("ghc", CABAL_GHC),
+    compiler = stage_tool("ghc", GHC),
     compiler_flags = select(dict(
         {"toolchains//:" + stage: _PROFILING_DETAIL[_profiling_detail] for stage in STAGES[1:]},
         DEFAULT = [],
     )),
-    packager = stage_tool("ghc-pkg", CABAL_GHC_PKG),
+    packager = stage_tool("ghc-pkg", GHC_PKG),
     hsc2hs = select(dict(
         {"toolchains//:" + stage: ":hsc2hs" for stage in STAGES[1:]},
-        DEFAULT = CABAL_HSC2HS,
+        DEFAULT = HSC2HS,
     )),
     # A GHC that the build makes is linked as the build mode of the stage
     # before says.
