@@ -38,6 +38,12 @@ packages: compiler
           utils/runghc
           -- The testsuite driver's programs, which run where the build does
           testsuite/ghc-config
+          -- The testsuite's linters, built by the bootstrap compiler as
+          -- Hadrian builds them
+          linters/linters-common
+          linters/lint-notes
+          linters/lint-whitespace
+          utils/changelog-d
 
 -- The boot libraries' own test-suites and benchmarks aren't part of the GHC
 -- build, and some of them would make cyclic dependencies (file-io's test-suite

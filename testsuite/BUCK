@@ -19,12 +19,37 @@ genrule(
 #   buck2 run //testsuite:test -- THREADS=12 TEST="T1 T2"
 testsuite(
     name = "test",
-    # As the install is configured, so that check-ppr is built with the
-    # same stage1 libraries (all ways).
+    # As the install is configured, so that the programs that use the ghc
+    # library are built with the same stage1 libraries (all ways).
     incoming_transition = "toolchains//:to-all-ways",
-    check_ppr = "root//utils/check-ppr:check-ppr-stage1",
     ghc_config = "root//testsuite/ghc-config:ghc-config",
     install = "root//:stage2-install",
+    # The programs that the tests ask Hadrian to build, built as Hadrian
+    # builds them (see checkPrograms in hadrian/src/Rules/Test.hs): those
+    # that use the ghc library by the stage1 compiler, so that they use the
+    # stage2 compiler's, and the others by the bootstrap compiler.
+    programs = {
+        "CHANGELOG_D": "root//utils/changelog-d:changelog-d-stage0",
+        "CHECK_EXACT": "root//utils/check-exact:check-exact-stage1",
+        "CHECK_PPR": "root//utils/check-ppr:check-ppr-stage1",
+        "COUNT_DEPS": "root//utils/count-deps:count-deps-stage1",
+        "DUMP_DECLS": "root//utils/dump-decls:dump-decls-stage1",
+        "LINT_CODES": "root//linters/lint-codes:lint-codes-stage1",
+        "LINT_NOTES": "root//linters/lint-notes:lint-notes-stage0",
+        "LINT_WHITESPACE": "root//linters/lint-whitespace:lint-whitespace-stage0",
+    },
+    # The tests that need the libraries' docs, which the build doesn't make
+    # yet (Hadrian's docs-haddock): the haddock tests that read the docs'
+    # interfaces, and the perf tests of the stats of building them.
+    skip = [
+        "haddock.Cabal",
+        "haddock.base",
+        "haddock.compiler",
+        "haddockHoogleTest",
+        "haddockHtmlTest",
+        "haddockHypsrcTest",
+        "haddockLatexTest",
+    ],
     tests_makefile = "tests/Makefile",
     timeout = ":timeout",
 )

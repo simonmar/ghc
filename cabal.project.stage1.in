@@ -19,6 +19,7 @@ packages: rts
           libraries/ghc-compact
           libraries/ghc-experimental
           libraries/ghc-heap
+          libraries/integer-gmp
           libraries/mtl
           libraries/parsec
           libraries/pretty
@@ -62,6 +63,10 @@ packages: rts
           utils/unlit
           -- The testsuite's programs that use the stage2 compiler's ghc library
           utils/check-ppr
+          utils/check-exact
+          utils/count-deps
+          utils/dump-decls
+          linters/lint-codes
 
 package rts
   flags: @RtsCabalFlags@
