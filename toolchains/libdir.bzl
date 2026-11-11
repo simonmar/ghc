@@ -42,6 +42,9 @@ def _ghc_libdir_impl(ctx: AnalysisContext) -> list[Provider]:
     } | ctx.attrs.files
     if ctx.attrs.hsc2hs_data:
         contents["template-hsc.h"] = ctx.attrs.hsc2hs_data.project("template-hsc.h")
+    if ctx.attrs.haddock_data:
+        contents["html"] = ctx.attrs.haddock_data.project("html")
+        contents["latex"] = ctx.attrs.haddock_data.project("latex")
     ctx.actions.run(
         cmd_args(
             "sh",
@@ -140,6 +143,9 @@ ghc_libdir = rule(
         # Other files that it has, by their names in it.
         "files": attrs.dict(attrs.string(), attrs.source(), default = {}),
         "ghc_pkg": attrs.exec_dep(providers = [RunInfo]),
+        # The data files of haddock-api: the html and latex resources that
+        # haddock looks for in the libdir.
+        "haddock_data": attrs.option(attrs.source(allow_directory = True), default = None),
         # The data files of the hsc2hs installed with the GHC: its
         # template-hsc.h, which is in the libdir.
         "hsc2hs_data": attrs.option(attrs.source(allow_directory = True), default = None),
@@ -209,6 +215,12 @@ def _ghc_toolchain_impl(ctx: AnalysisContext) -> list[Provider]:
     fields = {field: getattr(info, field) for field in dir(info)}
     fields["compiler"] = cmd_args(info.compiler, cmd_args(libdir.default_outputs[0], format = "-B{}"), hidden = files)
     fields["linker"] = cmd_args(info.linker, cmd_args(libdir.default_outputs[0], format = "-B{}"), hidden = files)
+    fields["haddock"] = cmd_args(
+        info.haddock,
+        cmd_args(libdir.default_outputs[0], format = "-B{}"),
+        cmd_args(libdir.default_outputs[0], format = "--lib={}"),
+        hidden = files,
+    )
     fields["packager"] = cmd_args(info.packager, cmd_args(libdir.default_outputs[0], format = "--global-package-db={}/package.conf.d"), hidden = files)
     return [
         DefaultInfo(),

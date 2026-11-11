@@ -55,6 +55,8 @@ packages: rts
           utils/ghc-toolchain/exe
           utils/hp2ps
           utils/hpc
+          utils/haddock/haddock-api
+          utils/haddock
           utils/hsc2hs
           utils/runghc
           utils/unlit
@@ -82,3 +84,7 @@ package ghc-bin
 
 package ghci
   flags: +internal-interpreter
+
+-- As Hadrian builds it, with its resources in GHC's libdir.
+package haddock-api
+  flags: +in-ghc-tree

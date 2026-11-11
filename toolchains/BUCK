@@ -1,6 +1,6 @@
 load("@prelude//transitions:utils.bzl", "transition_utils")
 load("@haskell-toolchains//:defaults.bzl", "default_haskell_toolchain", "default_toolchains")
-load("@third-party-haskell//:tools.bzl", "GHC", "GHC_DYNAMIC", "GHC_PKG", "HSC2HS")
+load("@third-party-haskell//:tools.bzl", "GHC", "GHC_DYNAMIC", "GHC_PKG", "HADDOCK", "HSC2HS")
 load("@root//cabal-buck2:packages.bzl", "PACKAGE_SETS", "PACKAGE_SET_LIBRARIES", "PACKAGE_TARGETS")
 load(":hsc2hs.bzl", "hsc2hs")
 load(":libdir.bzl", "ghc_libdir", "ghc_toolchain")
@@ -58,6 +58,7 @@ ghc_libdir(
     files = {f: "root//:" + f for f in ["ghc-usage.txt", "ghci-usage.txt", "llvm-passes", "llvm-targets"]},
     ghc_pkg = "root//utils/ghc-pkg:ghc-pkg",
     ghc_unit_id = GHC_UNIT_ID,
+    haddock_data = "root//utils/haddock/haddock-api:haddock-api-data",
     hsc2hs_data = select({":stage1": "root//utils/hsc2hs:hsc2hs-data", "DEFAULT": None}),
     interpreter = select({":stage1": True, "DEFAULT": False}),
     packages = select({":stage1": _STAGE1_LIBRARIES, "DEFAULT": []}),
@@ -74,13 +75,14 @@ ghc_libdir(
     unlit = "root//utils/unlit:unlit",
 )
 
-# The tools of stage N (N > 0), built at stage N-1: the compiler and ghc-pkg
-# (which the toolchain runs, for the execution platform), and their libdir
-# (for what they build, so the stage2 GHC's has the same stage1 libraries as
-# what is built at stage1 has).
+# The tools of stage N (N > 0), built at stage N-1: the compiler, ghc-pkg and
+# haddock (which the toolchain runs, for the execution platform), and their
+# libdir (for what they build, so the stage2 GHC's has the same stage1
+# libraries as what is built at stage1 has).
 _STAGE_TOOLS = {
     "ghc": "root//ghc:ghc",
     "ghc-pkg": "root//utils/ghc-pkg:ghc-pkg",
+    "haddock": "root//utils/haddock:haddock",
     "libdir": ":ghc-libdir",
 }
 
@@ -137,6 +139,7 @@ default_haskell_toolchain(
         DEFAULT = [],
     )),
     packager = stage_tool("ghc-pkg", GHC_PKG),
+    haddock = stage_tool("haddock", HADDOCK),
     hsc2hs = select(dict(
         {"toolchains//:" + stage: ":hsc2hs" for stage in STAGES[1:]},
         DEFAULT = HSC2HS,

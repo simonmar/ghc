@@ -28,6 +28,8 @@ packages: compiler
           libraries/unix
           libraries/xhtml
           utils/haddock/haddock-library
+          utils/haddock/haddock-api
+          utils/haddock
           utils/ghc-toolchain
           utils/ghc-toolchain/exe
           utils/ghc-pkg
@@ -69,3 +71,7 @@ package ghc
 
 package ghc-bin
   flags: +interpreter +threaded
+
+-- As Hadrian builds it, with its resources in GHC's libdir.
+package haddock-api
+  flags: +in-ghc-tree

@@ -66,6 +66,7 @@ ghc_install(
     programs = {
         "ghc": "toolchains//:stage2-ghc",
         "ghc-pkg": "toolchains//:stage2-ghc-pkg",
+        "haddock": "root//utils/haddock:haddock-stage1",
         "hp2ps": "root//utils/hp2ps:hp2ps-stage1",
         "hpc": "root//utils/hpc:hpc-stage1",
         "hsc2hs": "root//utils/hsc2hs:hsc2hs-stage1",

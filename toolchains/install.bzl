@@ -29,6 +29,7 @@ _WRAPPERS = {
     # The package database's files have whatever modification times the
     # build gives them, so its cache may look older than its package files.
     "ghc-pkg": '"$top/libexec/ghc-pkg" --global-package-db="$top/lib/package.conf.d" --always-use-cache',
+    "haddock": '"$top/libexec/haddock" -B"$top/lib" --lib="$top/lib"',
     "hsc2hs": '"$top/libexec/hsc2hs" --template="$top/lib/template-hsc.h"',
     "runghc": '"$top/libexec/runghc" -f "$top/bin/ghc"',
 }
