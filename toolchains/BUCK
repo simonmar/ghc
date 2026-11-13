@@ -4,6 +4,7 @@ load("@third-party-haskell//:tools.bzl", "GHC", "GHC_DYNAMIC", "GHC_PKG", "HADDO
 load("@root//cabal-buck2:packages.bzl", "PACKAGE_SETS", "PACKAGE_SET_LIBRARIES", "PACKAGE_TARGETS")
 load(":hsc2hs.bzl", "hsc2hs")
 load(":libdir.bzl", "ghc_libdir", "ghc_toolchain")
+load(":per_module_tools.bzl", "per_module_tools")
 load(":rts.bzl", "PROFILED_LIBRARIES", "RTS_PACKAGE_WAYS", "rts_package", "rts_package_ways")
 load(":rts_ways.bzl", "rts_way_settings", "rts_way_transitions")
 load(":stages.bzl", "STAGES", "stage_alias", "stage_links_shared", "stage_tool", "stage_transition")
@@ -75,16 +76,20 @@ ghc_libdir(
     unlit = "root//utils/unlit:unlit",
 )
 
-# The tools of stage N (N > 0), built at stage N-1: the compiler, ghc-pkg and
-# haddock (which the toolchain runs, for the execution platform), and their
-# libdir (for what they build, so the stage2 GHC's has the same stage1
-# libraries as what is built at stage1 has).
+# The tools of stage N (N > 0), built at stage N-1: the compiler, ghc-pkg,
+# haddock and the tools of the per-module compiles (which the toolchain runs,
+# for the execution platform), and their libdir (for what they build, so the
+# stage2 GHC's has the same stage1 libraries as what is built at stage1 has).
 _STAGE_TOOLS = {
     "ghc": "root//ghc:ghc",
     "ghc-pkg": "root//utils/ghc-pkg:ghc-pkg",
     "haddock": "root//utils/haddock:haddock",
     "libdir": ":ghc-libdir",
+    "per-module-compile": ":per_module_compile",
+    "per-module-deps": ":per_module_deps",
 }
+
+per_module_tools()
 
 [
     stage_alias(
@@ -140,6 +145,9 @@ default_haskell_toolchain(
     )),
     packager = stage_tool("ghc-pkg", GHC_PKG),
     haddock = stage_tool("haddock", HADDOCK),
+    # At stage0, the prelude's tools, which the bootstrap GHC builds.
+    per_module_compile = stage_tool("per-module-compile", None),
+    per_module_deps = stage_tool("per-module-deps", None),
     hsc2hs = select(dict(
         {"toolchains//:" + stage: ":hsc2hs" for stage in STAGES[1:]},
         DEFAULT = HSC2HS,
