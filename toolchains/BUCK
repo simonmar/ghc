@@ -1,13 +1,14 @@
 load("@prelude//transitions:utils.bzl", "transition_utils")
 load("@haskell-toolchains//:defaults.bzl", "default_haskell_toolchain", "default_toolchains")
 load("@third-party-haskell//:tools.bzl", "GHC", "GHC_DYNAMIC", "GHC_PKG", "HADDOCK", "HSC2HS")
+load("@root//buck2/platforms:defs.bzl", "execution_platform_with_constraints", "execution_platforms")
 load("@root//cabal-buck2:packages.bzl", "PACKAGE_SETS", "PACKAGE_SET_LIBRARIES", "PACKAGE_TARGETS")
 load(":hsc2hs.bzl", "hsc2hs")
 load(":libdir.bzl", "ghc_libdir", "ghc_toolchain")
 load(":per_module_tools.bzl", "per_module_tools")
 load(":rts.bzl", "PROFILED_LIBRARIES", "RTS_PACKAGE_WAYS", "rts_package", "rts_package_ways")
 load(":rts_ways.bzl", "rts_way_settings", "rts_way_transitions")
-load(":stages.bzl", "STAGES", "stage_alias", "stage_links_shared", "stage_tool", "stage_transition")
+load(":stages.bzl", "STAGES", "stage_alias", "stage_links_shared", "stage_modes", "stage_tool", "stage_transition")
 load(":unit_ids.bzl", "BASE_UNIT_ID", "GHC_UNIT_ID")
 
 default_toolchains()
@@ -40,6 +41,29 @@ constraint_setting(
     )
     for stage in STAGES
 ]
+
+# The execution platform, which `[build] execution_platforms` in .buckconfig
+# names. The tools that the build runs, such as alex or genprimopcode, are
+# exec deps, and an exec dep is configured with the execution platform's
+# constraints. These tools are built by the bootstrap GHC, so they should be
+# built in the build mode of stage0. Otherwise they would have the default
+# execution platform's mode (dev), and the libraries that they share with
+# the stage1 GHC, such as Cabal, would be compiled a second time in that
+# mode.
+execution_platform_with_constraints(
+    name = "exec-stage0",
+    base = "root//buck2/platforms:exec-default",
+    constraint_values = stage_modes("stage0"),
+)
+
+execution_platforms(
+    name = "exec",
+    platforms = [
+        ":exec-stage0",
+        "root//buck2/platforms:exec-opt",
+    ],
+    visibility = ["PUBLIC"],
+)
 
 # The libdir of the GHC of the next stage, built in this one's configuration
 # (see stage_alias()): the stage2 GHC's, in stage1's, has the stage1
