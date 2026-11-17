@@ -222,11 +222,12 @@ def _ghc_toolchain_impl(ctx: AnalysisContext) -> list[Provider]:
         hidden = files,
     )
     fields["packager"] = cmd_args(info.packager, cmd_args(libdir.default_outputs[0], format = "--global-package-db={}/package.conf.d"), hidden = files)
-    # The per-module tools run the GHC's own code in-process, which reads the
-    # GHC's settings and package database from its libdir.
-    for tool in ["per_module_deps", "per_module_compile"]:
-        if getattr(info, tool):
-            fields[tool] = cmd_args(getattr(info, tool), cmd_args(libdir.default_outputs[0], format = "--libdir={}"), hidden = files)
+    # The per-module tools and worker run the GHC's own code in-process, and
+    # that code reads the GHC's settings and package database from its
+    # libdir. The rules pass them the path that this file holds. The
+    # wrapped toolchain's `libdir` is no use here, because it comes from
+    # running the compiler without -B.
+    fields["libdir"] = ctx.actions.write("libdir", cmd_args(libdir.default_outputs[0]))
     return [
         DefaultInfo(),
         HaskellToolchainInfo(**fields),
