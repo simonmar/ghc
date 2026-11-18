@@ -96,7 +96,7 @@ def _installed_packages(ctx: AnalysisContext) -> (list, list, list):
     for id in static | shared:
         lib = static.get(id) or shared[id]
         files += lib.include_dirs
-        if lib.linked_by_ghc:
+        if lib.is_rts:
             # Installed already (the RTS's package).
             packages.append({"db": lib.db})
             files += lib.libs

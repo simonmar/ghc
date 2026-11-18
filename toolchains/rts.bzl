@@ -68,13 +68,24 @@ def _rts_package_impl(ctx: AnalysisContext) -> list[Provider]:
     variant_info = (some_variant.prof_lib if profiling else some_variant.lib).values()[0]
     # What GHC links the RTS with: what its own C needs (-lm, -lrt, say).
     own = get_own_link_infos(library[MergedLinkInfo], LinkStrategy("static"))
+
+    # The database also has the packages that the rts depends on
+    # (libffi-clib, say). An executable's link reads only this database
+    # (see HaskellLibraryInfo.is_rts), and GHC would ignore the rts package
+    # if its dependencies were missing.
+    library_link = library[HaskellLinkInfo]
+    rts_deps = [
+        lib
+        for lib in (library_link.prof_info if profiling else library_link.info).values()[0].traverse()
+        if lib.id != variant_info.id
+    ]
     manifest = ctx.actions.write_json("package.json", [{
         "db": variant_info.db,
         "dynamic_library_dirs": [libdir],
         "hs_library": ctx.attrs.hs_library,
         "ld_options": own.default.pre_flags if own else [],
         "library_dirs": [libdir],
-    }], with_inputs = True)
+    }] + [{"db": lib.db} for lib in rts_deps], with_inputs = True)
     ctx.actions.run(
         cmd_args("python3", ctx.attrs._package_db, ctx.attrs.ghc_pkg[RunInfo], db.as_output(), manifest),
         category = "rts_package",
@@ -90,7 +101,7 @@ def _rts_package_impl(ctx: AnalysisContext) -> list[Provider]:
         version = variant_info.version,
         is_prebuilt = False,
         profiling_enabled = profiling,
-        linked_by_ghc = True,
+        is_rts = True,
     )
 
     # What the rts depends on is the rts library's of this configuration (its
@@ -109,7 +120,6 @@ def _rts_package_impl(ctx: AnalysisContext) -> list[Provider]:
             for link_style, tset in infos.items()
         }
 
-    library_link = library[HaskellLinkInfo]
     haskell_link_info = HaskellLinkInfo(info = link_info(library_link.info), prof_info = link_info(library_link.prof_info))
 
     # GHC links the RTS: what is linked with it is only what its own C needs.
