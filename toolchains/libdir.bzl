@@ -97,10 +97,12 @@ def _installed_packages(ctx: AnalysisContext) -> (list, list, list):
         lib = static.get(id) or shared[id]
         files += lib.include_dirs
         if lib.is_rts:
-            # Installed already (the RTS's package).
-            packages.append({"db": lib.db})
-            files += lib.libs
-            rts_include_dirs = lib.include_dirs
+            # The RTS's package is installed already. Its profiled package
+            # has the profiled variants of the RTS as well as the others.
+            rts = profiled.get(id, lib)
+            packages.append({"db": rts.db})
+            files += rts.libs
+            rts_include_dirs = rts.include_dirs
             continue
 
         # The library, by the name that Cabal gives it (HS<unit id>), with the

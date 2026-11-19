@@ -19,9 +19,6 @@ genrule(
 #   buck2 run //testsuite:test -- THREADS=12 TEST="T1 T2"
 testsuite(
     name = "test",
-    # As the install is configured, so that the programs that use the ghc
-    # library are built with the same stage1 libraries (all ways).
-    incoming_transition = "toolchains//:to-all-ways",
     ghc_config = "root//testsuite/ghc-config:ghc-config",
     install = "root//:stage2-install",
     # The programs that the tests ask Hadrian to build, built as Hadrian

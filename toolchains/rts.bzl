@@ -31,22 +31,24 @@ load(
     "traverse_shared_library_info",
 )
 load("@prelude//linking:types.bzl", "Linkage")
-load(":rts_ways.bzl", "RTS_LIBRARY", "RTS_VARIANTS", "RTS_WAY_UNITS", "rts_library_file")
+load(":rts_ways.bzl", "RTS_LIBRARY", "RTS_VARIANTS", "rts_library_file")
 
 def _units(way):
     return [] if way == "v" else way.split("_")
 
-def _rts_package_impl(ctx: AnalysisContext) -> list[Provider]:
+def _package(ctx: AnalysisContext, prefix: str, variants: dict, profiling: bool) -> (HaskellLibraryInfo, list):
+    """Registers a package of the RTS whose library directory has the
+    libraries of `variants` (way name -> the rts library built for that
+    way), under the names that GHC gives them. The names of its outputs
+    start with `prefix`. Returns the package and the shared libraries of its
+    dynamic variants."""
     library = ctx.attrs.library
-    profiling = ctx.attrs.profiling
 
-    # The variants' libraries, under GHC's names. A dynamic variant's soname
-    # is already GHC's (the rts's `soname`), which is what a program that is
-    # linked with it looks for.
+    # A dynamic variant's soname is already GHC's (the rts's `soname`), which
+    # is what a program that is linked with it looks for.
     files = {}
     shared_libraries = []
-    some_variant = None
-    for way, variant in ctx.attrs.variants.items():
+    for way, variant in variants.items():
         provider = variant[HaskellLibraryProvider]
         units = _units(way)
         if "dyn" in units:
@@ -59,13 +61,17 @@ def _rts_package_impl(ctx: AnalysisContext) -> list[Provider]:
         else:
             lib = (provider.prof_lib if "p" in units else provider.lib)[LinkStyle("static")].libs[0]
         files[rts_library_file(units)] = lib
-        some_variant = some_variant or provider
-    libdir = ctx.actions.symlinked_dir("lib", files)
+    libdir = ctx.actions.symlinked_dir(prefix + "lib", files)
 
-    # The package: one of the variants' (they differ only in their
-    # libraries), with GHC's hs-libraries in libdir instead.
-    db = ctx.actions.declare_output("db", dir = True)
-    variant_info = (some_variant.prof_lib if profiling else some_variant.lib).values()[0]
+    # The package is one of the variants' packages, with GHC's hs-libraries
+    # in libdir instead. The variants' packages differ only in their
+    # libraries. The profiled package is a profiled variant's, so that its
+    # registration doesn't need a profiled build of an unprofiled variant.
+    if profiling:
+        variant_info = variants[_PROFILED_WAYS[0]][HaskellLibraryProvider].prof_lib[LinkStyle("static")]
+    else:
+        variant_info = variants.values()[0][HaskellLibraryProvider].lib.values()[0]
+
     # What GHC links the RTS with: what its own C needs (-lm, -lrt, say).
     own = get_own_link_infos(library[MergedLinkInfo], LinkStrategy("static"))
 
@@ -79,7 +85,8 @@ def _rts_package_impl(ctx: AnalysisContext) -> list[Provider]:
         for lib in (library_link.prof_info if profiling else library_link.info).values()[0].traverse()
         if lib.id != variant_info.id
     ]
-    manifest = ctx.actions.write_json("package.json", [{
+    db = ctx.actions.declare_output(prefix + "db", dir = True)
+    manifest = ctx.actions.write_json(prefix + "package.json", [{
         "db": variant_info.db,
         "dynamic_library_dirs": [libdir],
         "hs_library": ctx.attrs.hs_library,
@@ -89,6 +96,7 @@ def _rts_package_impl(ctx: AnalysisContext) -> list[Provider]:
     ctx.actions.run(
         cmd_args("python3", ctx.attrs._package_db, ctx.attrs.ghc_pkg[RunInfo], db.as_output(), manifest),
         category = "rts_package",
+        identifier = "profiled" if profiling else "unprofiled",
     )
     hlib = HaskellLibraryInfo(
         name = variant_info.name,
@@ -103,26 +111,44 @@ def _rts_package_impl(ctx: AnalysisContext) -> list[Provider]:
         profiling_enabled = profiling,
         is_rts = True,
     )
+    return hlib, shared_libraries
+
+def _rts_package_impl(ctx: AnalysisContext) -> list[Provider]:
+    library = ctx.attrs.library
+
+    # Two packages: one with the unprofiled variants, and one that has the
+    # profiled variants too, for what is profiled. Each is a library of the
+    # rts package, as HaskellLibraryProvider's `lib` and `prof_lib` are of a
+    # Haskell library. So the profiled variants are only built when a
+    # profiled compile or link, or a GHC's libdir with profiled libraries,
+    # asks for them.
+    hlib, shared_libraries = _package(ctx, "", ctx.attrs.variants, profiling = False)
+    prof_hlib, _ = _package(ctx, "prof-", ctx.attrs.variants | ctx.attrs.profiled_variants, profiling = True)
 
     # What the rts depends on is the rts library's of this configuration (its
     # own libraries, not being referred to, aren't built).
-    def link_info(infos):
+    def link_info(package, infos):
         return {
             link_style: ctx.actions.tset(
                 HaskellLibraryInfoTSet,
-                value = hlib,
+                value = package,
                 children = [
                     ctx.actions.tset(HaskellLibraryInfoTSet, value = lib)
                     for lib in tset.traverse()
-                    if lib.id != variant_info.id
+                    if lib.id != package.id
                 ],
             )
             for link_style, tset in infos.items()
         }
 
-    haskell_link_info = HaskellLinkInfo(info = link_info(library_link.info), prof_info = link_info(library_link.prof_info))
+    library_link = library[HaskellLinkInfo]
+    haskell_link_info = HaskellLinkInfo(
+        info = link_info(hlib, library_link.info),
+        prof_info = link_info(prof_hlib, library_link.prof_info),
+    )
 
     # GHC links the RTS: what is linked with it is only what its own C needs.
+    own = get_own_link_infos(library[MergedLinkInfo], LinkStrategy("static"))
     link_infos = {
         output_style: LinkInfos(default = LinkInfo(name = ctx.label.name, pre_flags = own.default.pre_flags if own else []))
         for output_style in LibOutputStyle
@@ -139,10 +165,10 @@ def _rts_package_impl(ctx: AnalysisContext) -> list[Provider]:
     ]
 
     return [
-        DefaultInfo(default_outputs = [libdir, db]),
+        DefaultInfo(default_outputs = hlib.libs + [hlib.db]),
         HaskellLibraryProvider(
             lib = {link_style: hlib for link_style in library[HaskellLibraryProvider].lib},
-            prof_lib = {link_style: hlib for link_style in library[HaskellLibraryProvider].prof_lib},
+            prof_lib = {link_style: prof_hlib for link_style in library[HaskellLibraryProvider].prof_lib},
         ),
         haskell_link_info,
         merged,
@@ -171,15 +197,18 @@ _rts_package_rule = rule(
         "labels": attrs.list(attrs.string(), default = []),
         # The rts library of this configuration.
         "library": attrs.dep(),
-        "profiling": attrs.bool(default = False),
-        # Way name -> the rts library built for that way.
+        # Way name -> the rts library built for that way, for the profiled
+        # ways. Only the profiled package has these.
+        "profiled_variants": attrs.dict(attrs.string(), attrs.dep()),
+        # Way name -> the rts library built for that way, for the unprofiled
+        # ways. Both packages have these.
         "variants": attrs.dict(attrs.string(), attrs.dep()),
         "_cxx_toolchain": toolchains_common.cxx(),
         "_package_db": attrs.source(default = "toolchains//:package_db.py"),
     },
 )
 
-# Whether an installation of the libraries (all_ways) has profiled ones:
+# Whether an installation of the libraries has profiled ones:
 # `profiled_libraries` in the ghc section of .buckconfig.
 PROFILED_LIBRARIES = read_root_config("ghc", "profiled_libraries", "true") == "true"
 
@@ -188,32 +217,29 @@ _DYNAMIC_WAYS = [way for way in RTS_VARIANTS if "dyn" in _units(way)]
 _PROFILED_WAYS = [way for way in RTS_VARIANTS if "p" in _units(way)]
 
 def _package_ways(f):
-    # Selects f(ways) for the ways of the RTS's package in the
-    # configuration: those of the configuration's libraries (see
-    # buck2/haskell.bzl), which a GHC that has them installed links
-    # programs with. They are built shared only when executables are linked
-    # shared, and otherwise static and shared, with profiled ones in a
-    # profiling configuration or an installation of them (all_ways).
+    # Selects f(ways) for the unprofiled ways of the RTS's package in the
+    # configuration. They are the ways of the configuration's libraries (see
+    # buck2/haskell.bzl), which a GHC that has them installed links programs
+    # with. The libraries are built only shared when executables are linked
+    # shared, and otherwise both static and shared.
     every = _STATIC_WAYS + _DYNAMIC_WAYS
     return select({
-        "root//buck2/constraints:all_ways": f(every + (_PROFILED_WAYS if PROFILED_LIBRARIES else [])),
+        "root//buck2/constraints:all_ways": f(every),
         "DEFAULT": select({
-            RTS_WAY_UNITS["p"]: f(every + _PROFILED_WAYS),
+            "root//buck2/constraints:static": f(every),
+            "root//buck2/constraints:shared": f(_DYNAMIC_WAYS),
             "DEFAULT": select({
-                "root//buck2/constraints:static": f(every),
-                "root//buck2/constraints:shared": f(_DYNAMIC_WAYS),
-                "DEFAULT": select({
-                    "root//buck2/constraints:opt": f(every),
-                    "DEFAULT": f(_DYNAMIC_WAYS),
-                }),
+                "root//buck2/constraints:opt": f(every),
+                "DEFAULT": f(_DYNAMIC_WAYS),
             }),
         }),
     })
 
-def rts_package_ways():
+def rts_package_ways(profiled):
     """Selects the ways of the RTS's package (rts_package()) in the
-    configuration, as GHC names them."""
-    return _package_ways(lambda ways: ways)
+    configuration, as GHC names them. With `profiled`, they are those of the
+    profiled package, which has the profiled ways too."""
+    return _package_ways(lambda ways: ways + (_PROFILED_WAYS if profiled else []))
 
 # Every way of the RTS's package in some configuration.
 RTS_PACKAGE_WAYS = _STATIC_WAYS + _DYNAMIC_WAYS + _PROFILED_WAYS
@@ -221,13 +247,13 @@ RTS_PACKAGE_WAYS = _STATIC_WAYS + _DYNAMIC_WAYS + _PROFILED_WAYS
 def rts_package(name, library, ghc_pkg):
     """The RTS's package (see rts.bzl), of `library` (the rts library's
     label) built for each of its ways in the configuration (see
-    _package_ways())."""
+    _package_ways()), and for each profiled way."""
     _rts_package_rule(
         name = name,
         ghc_pkg = ghc_pkg,
         hs_library = RTS_LIBRARY,
         library = library,
-        profiling = select({RTS_WAY_UNITS["p"]: True, "DEFAULT": False}),
+        profiled_variants = {way: library + "-" + way for way in _PROFILED_WAYS},
         variants = _package_ways(lambda ways: {way: library + "-" + way for way in ways}),
         visibility = ["PUBLIC"],
     )

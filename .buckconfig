@@ -74,10 +74,12 @@
   #
   #   stage2_compiler = dev
 
-  # Whether to build profiled libraries in a build with -m all_ways
-  # (default: true). In a build without -m all_ways, profiled
-  # libraries will only be built if needed, i.e. when prof is selected
-  # for a stage above.
+  # Whether an installation of the stage2 GHC (//:stage2-install,
+  # which the testsuite uses) has profiled libraries (default:
+  # true). The stage2 GHC that //:stage2-ghc builds only has profiled
+  # libraries when prof is selected for stage1 above, so that the
+  # stage2 GHC is itself profiled. Otherwise, profiled libraries are
+  # only built when something profiled needs them.
   #
   #   profiled_libraries = true
 

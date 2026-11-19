@@ -54,15 +54,24 @@ load("@toolchains//:stages.bzl", "STAGES")
     }.items()
 ]
 
-# The stage2 GHC installed, with the programs installed with it and its
-# libraries in every way: for the testsuite, say (its TEST_HC is
-# <the output>/bin/ghc).
+# An inplace install of stage2, with its tools and libraries. The
+# libraries are built static, dynamic, and profiled if `[ghc]
+# profiled_libraries = true` in `.buckconfig`.
+#
+# You can run GHC directly from this target and have access to all the
+# libraries, for example to run GHCi:
+#
+#    buck2 run :stage2-install -- --interactive
+#
+# The root of the install is given by
 #
 #   buck2 build //:stage2-install --show-output
+#
+# This target is also used for running the testsuite, where
+# TEST_HC is <the output>/bin/ghc.
 ghc_install(
     name = "stage2-install",
-    incoming_transition = "toolchains//:to-all-ways",
-    libdir = "toolchains//:stage2-libdir",
+    libdir = "toolchains//:stage2-install-libdir",
     programs = {
         "ghc": "toolchains//:stage2-ghc",
         "ghc-pkg": "toolchains//:stage2-ghc-pkg",

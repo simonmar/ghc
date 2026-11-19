@@ -67,9 +67,20 @@ def stage_links_shared(stage):
         return False
     return _MODES["shared"] in modes or _MODES["dev"] in modes
 
+# The stage whose libraries are installed in the libdir of the next stage's
+# GHC: the stage1 libraries, in the stage2 GHC's libdir. The libdir has
+# both their static and their shared libraries, so the stage's libraries
+# are always built both ways (all_ways), whatever the stage's linking. Then
+# each library is compiled once, with -dynamic-too, and everything that
+# uses the stage1 libraries (the stage2 GHC and its installation, say)
+# shares the same configuration of them.
+_INSTALLED_STAGE = "stage1"
+
 def stage_transition(name, stage, **kwargs):
     """A transition to `stage`, with its build mode (stage_modes())."""
     modes = stage_modes(stage)
+    if stage == _INSTALLED_STAGE:
+        modes = modes + ["root//buck2/constraints:all_ways"]
     transition_utils.modify_constraints_transition(
         name = name,
         add = ([] if stage == "stage0" else ["toolchains//:" + stage]) + modes,
