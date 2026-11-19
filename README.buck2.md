@@ -108,6 +108,19 @@ would when running it via `make`, e.g. to run a single test:
 buck2 run //testsuite:test -c ghc.stage1=opt,shared -- TEST=cgrun001
 ```
 
+## Freezing stage1
+
+You can freeze stage1, like Hadrian's `--freeze1` option.
+
+With Buck2 there are two steps: first, copy the snapshot into `toolchains/_frozen/stage1`:
+```
+buck2 run toolchains//:freeze-stage1
+```
+
+Next, tell Buck2 to use it. Either
+* set `[ghc] freeze1 = true` in `.buckconfig`
+* or `buck2 -c ghc.freeze1=true ...`
+
 ## Introspection
 
 Useful commands for inspecting things.

@@ -91,3 +91,18 @@
   #   profiling_detail = late-toplevel
   #   profiling_detail = toplevel-functions
 
+
+  # Whether stage1 is frozen (default: false), as with Hadrian's
+  # --freeze1. When it is frozen, the stage1 toolchain runs copies of
+  # the stage1 GHC and the other programs that are built with the ghc
+  # library, so a change to the compiler rebuilds only the stage2
+  # compiler, not the stage1 libraries. To make the copies, or to
+  # replace them with the programs of the current sources, run:
+  #
+  #   buck2 run toolchains//:freeze-stage1
+  #
+  # The first time, run it before setting freeze1 = true.
+  #
+  # See toolchains/freeze.bzl.
+  #
+  #   freeze1 = true

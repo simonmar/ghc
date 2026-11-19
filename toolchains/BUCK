@@ -3,12 +3,13 @@ load("@haskell-toolchains//:defaults.bzl", "default_haskell_toolchain", "default
 load("@third-party-haskell//:tools.bzl", "GHC", "GHC_DYNAMIC", "GHC_PKG", "HADDOCK", "HSC2HS")
 load("@root//buck2/platforms:defs.bzl", "execution_platform_with_constraints", "execution_platforms")
 load("@root//cabal-buck2:packages.bzl", "PACKAGE_SETS", "PACKAGE_SET_LIBRARIES", "PACKAGE_TARGETS")
+load(":freeze.bzl", "FROZEN_TOOLS", "freeze_stage1", "stage_tool_alias")
 load(":hsc2hs.bzl", "hsc2hs")
 load(":libdir.bzl", "ghc_libdir", "ghc_toolchain")
 load(":per_module_tools.bzl", "per_module_tools")
 load(":rts.bzl", "PROFILED_LIBRARIES", "RTS_PACKAGE_WAYS", "rts_package", "rts_package_ways")
 load(":rts_ways.bzl", "rts_way_settings", "rts_way_transitions")
-load(":stages.bzl", "STAGES", "stage_alias", "stage_links_shared", "stage_modes", "stage_tool", "stage_transition")
+load(":stages.bzl", "STAGES", "stage_links_shared", "stage_modes", "stage_tool", "stage_transition")
 load(":unit_ids.bzl", "BASE_UNIT_ID", "GHC_UNIT_ID")
 
 default_toolchains()
@@ -118,15 +119,27 @@ _STAGE_TOOLS = {
 per_module_tools()
 
 [
-    stage_alias(
+    stage_tool_alias(
         name = stage + "-" + tool,
+        stage = stage,
+        tool = tool,
         actual = actual,
-        stage = STAGES[i],
+        build_stage = STAGES[i],
         visibility = ["PUBLIC"],
     )
     for i, stage in enumerate(STAGES[1:])
     for tool, actual in _STAGE_TOOLS.items()
 ]
+
+# Snapshot the stage1 programs into `toolchains/_frozen/stage1`
+# for `[ghc] freeze1` (see freeze.bzl):
+#
+#   buck2 run toolchains//:freeze-stage1
+freeze_stage1(
+    name = "freeze-stage1",
+    script = "freeze_stage1.sh",
+    tools = {tool: ":stage1-{}-built".format(tool) for tool in FROZEN_TOOLS},
+)
 
 # The hsc2hs of the later stages, built at stage0 (as Hadrian builds it).
 hsc2hs(
