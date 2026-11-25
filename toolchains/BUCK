@@ -1,5 +1,5 @@
 load("@haskell-toolchains//:defaults.bzl", "default_haskell_toolchain", "default_toolchains")
-load("@third-party-haskell//:tools.bzl", "GHC", "GHC_DYNAMIC", "GHC_PKG", "HADDOCK", "HSC2HS")
+load("@third-party-haskell//:tools.bzl", "GHC", "GHC_DYNAMIC", "GHC_PKG", "GHC_VERSION", "HADDOCK", "HSC2HS")
 load("@root//buck2/platforms:defs.bzl", "execution_platform_with_constraints", "execution_platforms")
 load("@root//cabal-buck2:packages.bzl", "PACKAGE_SETS", "PACKAGE_SET_LIBRARIES", "PACKAGE_TARGETS")
 load(":freeze.bzl", "FROZEN_TOOLS", "freeze_stage1", "stage_tool_alias")
@@ -10,6 +10,7 @@ load(":rts.bzl", "PROFILED_LIBRARIES", "RTS_PACKAGE_WAYS", "rts_package", "rts_p
 load(":rts_ways.bzl", "rts_way_settings", "rts_way_transitions")
 load(":stages.bzl", "STAGES", "stage_alias", "stage_links_shared", "stage_modes", "stage_tool", "stage_transition")
 load(":unit_ids.bzl", "BASE_UNIT_ID", "GHC_UNIT_ID")
+load(":version.bzl", BUILT_GHC_VERSION = "GHC_VERSION")
 
 default_toolchains()
 
@@ -220,6 +221,13 @@ default_haskell_toolchain(
     dynamic_ghc = select(dict(
         {"toolchains//:" + stage: stage_links_shared(STAGES[n]) for n, stage in enumerate(STAGES[1:])},
         DEFAULT = GHC_DYNAMIC,
+    )),
+    # The rules choose some of GHC's flags by its version. At stage1 and
+    # later the compiler is the GHC that this tree builds, so its version is
+    # the tree's, not the bootstrap compiler's.
+    ghc_version = select(dict(
+        {"toolchains//:" + stage: BUILT_GHC_VERSION for stage in STAGES[1:]},
+        DEFAULT = GHC_VERSION,
     )),
 )
 

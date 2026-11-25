@@ -116,7 +116,7 @@ def _installed_packages(ctx: AnalysisContext) -> (list, list, list):
         # shared one's interface files too (-dynamic-too).
         name = "HS" + id
         libraries = {}
-        import_dirs = [lib.import_dirs[False]]
+        import_dirs = list(lib.import_dirs)
         if id in static:
             libraries["lib{}.a".format(name)] = static[id].libs[0]
         if id in shared:
@@ -125,7 +125,9 @@ def _installed_packages(ctx: AnalysisContext) -> (list, list, list):
             libraries["lib{}-ghc{}.so".format(name, GHC_VERSION)] = so
         if id in profiled:
             libraries["lib{}_p.a".format(name)] = profiled[id].libs[0]
-            import_dirs.append(profiled[id].import_dirs[True])
+            # A profiled library's import dirs include its unprofiled
+            # splice variant's, which the unprofiled library has too.
+            import_dirs += [d for d in profiled[id].import_dirs if d not in import_dirs]
         library_dir = ctx.actions.symlinked_dir("installed/" + id, libraries)
         packages.append({
             "db": lib.db,
