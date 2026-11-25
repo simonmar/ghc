@@ -100,7 +100,13 @@ def _installed_packages(ctx: AnalysisContext) -> (list, list, list):
             # The RTS's package is installed already. Its profiled package
             # has the profiled variants of the RTS as well as the others.
             rts = profiled.get(id, lib)
-            packages.append({"db": rts.db})
+
+            # The RTS's database also has the packages that the RTS depends
+            # on (see rts.bzl), as they were registered in the build. Those
+            # packages are installed in this loop too, so only the RTS's own
+            # file is taken from the database. Otherwise the build's copy of
+            # libffi-clib, say, would replace the installed one.
+            packages.append({"conf": rts.db.project(rts.id + ".conf")})
             files += rts.libs
             rts_include_dirs = rts.include_dirs
             continue
