@@ -86,7 +86,7 @@ OVERRIDES = {
                 f: "//gen:" + f
                 for f in ["AutoApply.cmm", "AutoApply_V16.cmm", "AutoApply_V32.cmm", "AutoApply_V64.cmm"]
             },
-            "include_dirs": ["//gen:rts-headers-dir"],
+            "provided_include_dir": "//gen:rts-headers-dir",
             # The rts built for each way (`variants`), which the rts's package,
             # toolchains//:rts (PACKAGE_TARGETS), gathers, for GHC to choose the
             # variant for the way it links (with -threaded, say). A dynamic
